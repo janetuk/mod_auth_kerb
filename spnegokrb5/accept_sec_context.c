@@ -64,8 +64,18 @@ code_NegTokenArg(OM_uint32 *minor_status,
 	}
     } while (ret == ASN1_OVERFLOW);
 
-    *outbuf      = buf + buf_size - buf_len;
+    *outbuf = malloc(buf_len);
+    if (*outbuf == NULL) {
+       *minor_status = ENOMEM;
+       free(buf);
+       return GSS_S_FAILURE;
+    }
+
+    memcpy(*outbuf, buf + buf_size - buf_len, buf_len);
     *outbuf_size = buf_len;
+
+    free(buf);
+    
     return GSS_S_COMPLETE;
 }
 
@@ -145,7 +155,7 @@ send_accept (OM_uint32 *minor_status,
     }
 
     ret = code_NegTokenArg (minor_status, &targ, 
-	                    (unsigned char**) &output_token->value, &output_token->length);
+	                    (unsigned char **) &output_token->value, &output_token->length);
     free_NegTokenTarg(&targ);
     if (ret)
 	return ret;
