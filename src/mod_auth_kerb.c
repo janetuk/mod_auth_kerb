@@ -147,11 +147,11 @@ set_kerb_auth_headers(request_rec *r, const kerb_auth_config *conf,
                       int use_krb4, int use_krb5pwd, char *negotiate_ret_value);
 
 static const char*
-krb5_save_realms(cmd_parms *cmd, kerb_auth_config *sec, char *arg);
+krb5_save_realms(cmd_parms *cmd, kerb_auth_config *sec, const char *arg);
 
 #ifdef STANDARD20_MODULE_STUFF
 #define command(name, func, var, type, usage)           \
-  AP_INIT_ ## type (name, func,                         \
+  AP_INIT_ ## type (name, (void*) func,                 \
         (void*)APR_XtOffsetOf(kerb_auth_config, var),   \
         OR_AUTHCFG | RSRC_CONF, usage)
 #else
@@ -292,7 +292,7 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 }
 
 static const char*
-krb5_save_realms(cmd_parms *cmd, kerb_auth_config *sec, char *arg)
+krb5_save_realms(cmd_parms *cmd, kerb_auth_config *sec, const char *arg)
 {
    sec->krb_auth_realms= ap_pstrdup(cmd->pool, arg);
    return NULL;
@@ -899,7 +899,7 @@ int authenticate_user_krb5pwd(request_rec *r,
    all_principals_unkown = 1;
    realms = conf->krb_auth_realms;
    do {
-      name = sent_name;
+      name = (char *) sent_name;
       if (realms && (realm = ap_getword_white(r->pool, &realms)))
 	 name = ap_psprintf(r->pool, "%s@%s", sent_name, realm);
 
