@@ -13,7 +13,13 @@ ifndef APXS
    APXS = apxs
 endif
 
-all: modauthkerb
+ifdef SPNEGO_ONLY
+   TARGET = libspnegokrb5
+else
+   TARGET = modauthkerb
+endif
+
+all: $(TARGET)
 
 libspnegokrb5:
 	(cd spnegokrb5 && make)
