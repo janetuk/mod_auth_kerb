@@ -1,1 +1,13 @@
-This README is temporary.  I'll make it say something good soon.
+1. Edit the makefile.include header
+2. make
+3. edit your httpd.conf, eg:
+   <Directory "/var/www/secure">
+      Options Indexes FollowSymLinks
+      AuthType Kerberos
+      KrbAuthRealms ICS.MUNI.CZ
+      Krb5Keytab /etc/httpd/keytab
+      KrbMethodNegotiate On
+      KrbMethodK5Pass On
+      require valid-user
+   </Directory>
+4. start httpd
