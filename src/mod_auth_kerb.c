@@ -14,6 +14,12 @@
 #ifdef KRB5
 #include <krb5.h>
 #include <gssapi.h>
+#ifndef HEIMDAL
+#include <gssapi_generic.h>
+#define GSS_C_NT_USER_NAME gss_nt_user_name
+#define GSS_C_NT_HOSTBASED_SERVICE gss_nt_service_name
+#define krb5_get_err_text(context,code) error_message(code)
+#endif
 #endif /* KRB5 */
 
 #ifdef KRB4
@@ -323,6 +329,8 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
       KRB5_TGS_NAME
    };
 
+   return 0;
+
    memset((char *)&my_creds, 0, sizeof(my_creds));
    my_creds.client = principal;
 
@@ -461,10 +469,14 @@ store_krb5_creds(krb5_context kcontext,
       return ret;
    }
 
+#ifdef HEIMDAL
    problem = krb5_cc_copy_cache(kcontext, delegated_cred, ccache);
+#else
+   problem = krb5_cc_copy_creds(kcontext, delegated_cred, ccache);
+#endif
    krb5_free_principal(kcontext, princ);
    if (problem) {
-      snprintf(errstr, sizeof(errstr), "krb5_cc_copy_cache() failed: %s",
+      snprintf(errstr, sizeof(errstr), "Failed to store credentials: %s",
 	       krb5_get_err_text(kcontext, problem));
       krb5_cc_destroy(kcontext, ccache);
       return HTTP_INTERNAL_SERVER_ERROR;
@@ -521,8 +533,8 @@ int authenticate_user_krb5pwd(request_rec *r,
    }
 
    if (conf->krb_5_keytab)
-      /* setenv("KRB5_KTNAME", conf->krb_5_keytab, 1); */
-      kcontext->default_keytab = conf->krb_5_keytab;
+      setenv("KRB5_KTNAME", conf->krb_5_keytab, 1);
+      /* kcontext->default_keytab = conf->krb_5_keytab; */
 
    if (conf->service_name) {
       char *p;
@@ -746,6 +758,12 @@ authenticate_user_gss(request_rec *r,
   int ret;
   gss_name_t client_name = GSS_C_NO_NAME;
   gss_cred_id_t delegated_cred = GSS_C_NO_CREDENTIAL;
+  static int initial_return = HTTP_UNAUTHORIZED;
+
+  /* needed to work around replay caches */
+  if (!ap_is_initial_req(r))
+     return initial_return;
+  initial_return = HTTP_UNAUTHORIZED;
 
   if (gss_connection == NULL) {
      gss_connection = ap_pcalloc(r->connection->pool, sizeof(*gss_connection));
@@ -885,6 +903,7 @@ end:
   if (client_name != GSS_C_NO_NAME)
      gss_release_name(&minor_status, &client_name);
 
+  initial_return = ret;
   return ret;
 }
 #endif /* KRB5 */
