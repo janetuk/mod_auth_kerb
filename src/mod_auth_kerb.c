@@ -214,6 +214,8 @@ typedef struct {
 } gss_connection_t;
 
 static gss_connection_t *gss_connection = NULL;
+
+static const char *EMPTY_STRING = "\0";
 #endif
 
 
@@ -940,9 +942,8 @@ cmp_gss_type(gss_buffer_t token, gss_OID oid)
 }
 
 static int
-authenticate_user_gss(request_rec *r,
-      	 	      kerb_auth_config *conf,
-		      const char *auth_line)
+authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
+		      const char *auth_line, char **negotiate_ret_value)
 {
   OM_uint32 major_status, minor_status, minor_status2;
   gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;
@@ -953,6 +954,8 @@ authenticate_user_gss(request_rec *r,
   gss_cred_id_t delegated_cred = GSS_C_NO_CREDENTIAL;
   OM_uint32 (*accept_sec_token)();
   gss_OID_desc spnego_oid;
+
+  *negotiate_ret_value = (char *)EMPTY_STRING;
 
   spnego_oid.length = 6;
   spnego_oid.elements = (void *)"\x2b\x06\x01\x05\x05\x02";
@@ -1038,8 +1041,7 @@ authenticate_user_gss(request_rec *r,
      }
      ap_base64encode(token, output_token.value, output_token.length);
      token[len] = '\0';
-     ap_table_set(r->err_headers_out, "WWW-Authenticate",
-	          ap_pstrcat(r->pool, "Negotiate ", token, NULL));
+     *negotiate_ret_value = token;
      gss_release_buffer(&minor_status2, &output_token);
   }
 
@@ -1047,9 +1049,9 @@ authenticate_user_gss(request_rec *r,
      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	        "%s", get_gss_error(r->pool, major_status, minor_status,
 		                    "gss_accept_sec_context() failed"));
+     /* Don't offer the Negotiate method again if call to GSS layer failed */
+     *negotiate_ret_value = (char *) EMPTY_STRING;
      ret = HTTP_UNAUTHORIZED;
-     /* XXX in this case the server hasn't to return to the client the
-      * Negotiate method again! */
      goto end;
   }
 
@@ -1109,18 +1111,21 @@ already_succeeded(request_rec *r)
 
 static void
 note_kerb_auth_failure(request_rec *r, const kerb_auth_config *conf,
-      		       int use_krb4, int use_krb5)
+      		       int use_krb4, int use_krb5, char *negotiate_ret_value)
 {
    const char *auth_name = NULL;
    int set_basic = 0;
+   char *negoauth_param;
 
    /* get the user realm specified in .htaccess */
    auth_name = ap_auth_name(r);
 
    /* XXX should the WWW-Authenticate header be cleared first? */
 #ifdef KRB5
-   if (use_krb5 && conf->krb_method_gssapi)
-      ap_table_add(r->err_headers_out, "WWW-Authenticate", "Negotiate");
+   if (use_krb5 && conf->krb_method_gssapi && negotiate_ret_value != NULL)
+      negoauth_param = (*negotiate_ret_value == '\0') ? "Negotiate" :
+	          ap_pstrcat(r->pool, "Negotiate ", negotiate_ret_value, NULL);
+      ap_table_add(r->err_headers_out, "WWW-Authenticate", negoauth_param);
    if (use_krb5 && conf->krb_method_k5pass) {
       ap_table_add(r->err_headers_out, "WWW-Authenticate",
                    ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
@@ -1146,6 +1151,7 @@ int kerb_authenticate_user(request_rec *r)
    int use_krb5 = 0, use_krb4 = 0;
    int ret;
    static int last_return = HTTP_UNAUTHORIZED;
+   char *negotiate_ret_value;
 
    /* get the type specified in .htaccess */
    type = ap_auth_type(r);
@@ -1162,7 +1168,7 @@ int kerb_authenticate_user(request_rec *r)
    /* get what the user sent us in the HTTP header */
    auth_line = MK_TABLE_GET(r->headers_in, "Authorization");
    if (!auth_line) {
-      note_kerb_auth_failure(r, conf, use_krb4, use_krb5);
+      note_kerb_auth_failure(r, conf, use_krb4, use_krb5, "\0");
       return HTTP_UNAUTHORIZED;
    }
    auth_type = ap_getword_white(r->pool, &auth_line);
@@ -1175,7 +1181,7 @@ int kerb_authenticate_user(request_rec *r)
 #ifdef KRB5
    if (use_krb5 && conf->krb_method_gssapi &&
        strcasecmp(auth_type, "Negotiate") == 0) {
-      ret = authenticate_user_gss(r, conf, auth_line);
+      ret = authenticate_user_gss(r, conf, auth_line, &negotiate_ret_value);
    } else if (use_krb5 && conf->krb_method_k5pass &&
 	      strcasecmp(auth_type, "Basic") == 0) {
        ret = authenticate_user_krb5pwd(r, conf, auth_line);
@@ -1189,7 +1195,7 @@ int kerb_authenticate_user(request_rec *r)
 #endif
 
    if (ret == HTTP_UNAUTHORIZED)
-      note_kerb_auth_failure(r, conf, use_krb4, use_krb5);
+      note_kerb_auth_failure(r, conf, use_krb4, use_krb5, negotiate_ret_value);
 
    last_return = ret;
    return ret;
