@@ -181,88 +181,90 @@ void log_rerror(const char *file, int line, int level, int status,
 /*************************************************************************** 
  Username/Password Validation for Krb4
  ***************************************************************************/
-int kerb4_password_validate(request_rec *r, const char *user, const char *pass)
+static int
+krb4_cache_cleanup(void *data)
 {
-	kerb_auth_config *conf =
-		(kerb_auth_config *)ap_get_module_config(r->per_dir_config,
-					&auth_kerb_module);
-	int ret;
-	int lifetime = DEFAULT_TKT_LIFE;
-	char *c, *tfname;
-	char *username = NULL;
-	char *instance = NULL;
-	char *realm = NULL;
+   char *tkt_file = (char *) data;
+   
+   krb_set_tkt_string(tkt_file);
+   dest_tkt();
+   return OK;
+}
 
-	username = (char *)ap_pstrdup(r->pool, user);
-	if (!username) {
-		return 0;
-	}
+static int 
+authenticate_user_krb4pwd(request_rec *r,
+      			  kerb_auth_config *conf,
+			  const char *auth_line)
+{
+   int ret;
+   const char *sent_pw;
+   const char *sent_name;
+   char tkt_file[32];
+   char *tkt_file_p = NULL;
+   int fd;
+   const char *realms;
+   const char *realm;
+   krb_principal pr;
 
-	instance = strchr(username, '.');
-	if (instance) {
-		*instance++ = '\0';
-	}
-	else {
-		instance = "";
-	}
+   sent_pw = ap_pbase64decode(r->pool, auth_line);
+   sent_name = ap_getword (r->pool, &sent_pw, ':');
 
-	realm = strchr(username, '@');
-	if (realm) {
-		*realm++ = '\0';
-	}
-	else {
-		realm = "";
-	}
+   snprintf(tkt_file, sizeof(tkt_file), "/tmp/apache_tkt_XXXXXX");
+   fd = mkstemp(tkt_file);
+   if (fd < 0) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "Cannot create krb4 ccache: mkstemp() failed: %s",
+		 strerror(errno));
+      return HTTP_INTERNAL_SERVER_ERROR;
+   }
 
-	if (conf->krb_lifetime) {
-		lifetime = atoi(conf->krb_lifetime);
-	}
+   tkt_file_p = ap_pstrdup(r->pool, tkt_file);
+   ap_register_cleanup(r->pool, tkt_file_p,
+	               krb4_cache_cleanup, ap_null_cleanup);
 
-	if (conf->krb_force_instance) {
-		instance = conf->krb_force_instance;
-	}
+   krb_set_tkt_string(tkt_file);
 
-	if (conf->krb_save_credentials) {
-		tfname = (char *)malloc(sizeof(char) * MAX_STRING_LEN);
-		sprintf(tfname, "/tmp/k5cc_ap_%s", MK_USER);
+   realms = conf->krb_auth_realms;
+   do {
+      realm = NULL;
+      if (realms)
+	 realm = ap_getword_white(r->pool, &realms);
 
-		if (!strcmp(instance, "")) {
-			tfname = strcat(tfname, ".");
-			tfname = strcat(tfname, instance);
-		}
+      ret = krb_verify_user_srvtab((char *)sent_name, "", (char *)realm,
+	    			   (char *)sent_pw, 1, "khttp",
+				   conf->krb_4_srvtab);
+      if (ret == 0)
+	 break;
+   } while (realms && *realms);
 
-		if (!strcmp(realm, "")) {
-			tfname = strcat(tfname, ".");
-			tfname = strcat(tfname, realm);
-		}
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "Verifying krb4 password failed (%d)", ret);
+      ret = HTTP_UNAUTHORIZED;
+      goto end;
+   }
 
-		for (c = tfname + strlen("/tmp") + 1; *c; c++) {
-			if (*c == '/')
-				*c = '.';
-		}
+   if ((ret = krb_get_tf_realm(tkt_file, pr.realm)) ||
+       (ret = tf_init(tkt_file, R_TKT_FIL)) ||
+       (ret = tf_get_pname(pr.name)) ||
+       (ret = tf_get_pinst(pr.instance))) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "Cannot read krb4 principal from tfile (%d)", ret);
+      ret = HTTP_INTERNAL_SERVER_ERROR;
+      goto end;
+   }
 
-		krb_set_tkt_string(tfname);
-	}
+   MK_USER = ap_pstrdup (r->pool, krb_unparse_name(&pr));
+   MK_AUTH_TYPE = "Basic";
+   ap_table_setn(r->subprocess_env, "KRBTKFILE", tkt_file_p);
 
-	if (!strcmp(realm, "")) {
-		realm = (char *)malloc(sizeof(char) * (REALM_SZ + 1));
-		ret = krb_get_lrealm(realm, 1);
-		if (ret != KSUCCESS)
-			return 0;
-	}
+end:
+   if (ret)
+      krb4_cache_cleanup(tkt_file);
+   close(fd);
+   tf_close();
 
-	ret = krb_get_pw_in_tkt((char *)user, instance, realm, "krbtgt", realm,
-					lifetime, (char *)pass);
-	switch (ret) {
-		case INTK_OK:
-		case INTK_W_NOTALL:
-			return 1;
-			break;
-
-		default:
-			return 0;
-			break;
-	}
+   return ret;
 }
 #endif /* KRB4 */
 
