@@ -628,7 +628,6 @@ int authenticate_user_krb5pwd(request_rec *r,
 
    if (conf->krb_5_keytab)
       krb5_kt_resolve(kcontext, conf->krb_5_keytab, &keytab);
-      /* setenv("KRB5_KTNAME", conf->krb_5_keytab, 1); */
 
    realms = conf->krb_auth_realms;
    do {
@@ -865,7 +864,9 @@ authenticate_user_gss(request_rec *r,
   }
 
   if (conf->krb_5_keytab)
-     setenv("KRB5_KTNAME", conf->krb_5_keytab, 1);
+     /* use really strcat(), since the string passed to putenv() will become
+      * part of the enviroment and shouldn't be free()ed by apache */
+     putenv(strcat("KRB5_KTNAME=", conf->krb_5_keytab));
 
   if (gss_connection->server_creds == GSS_C_NO_CREDENTIAL) {
      ret = get_gss_creds(r, conf, &gss_connection->server_creds);
