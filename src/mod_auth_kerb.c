@@ -1354,6 +1354,12 @@ module MODULE_VAR_EXPORT auth_kerb_module = {
 	NULL,				/*      process initialization        */
 	NULL,				/*      process exit/cleanup          */
 	NULL				/* [ 1] post read_request handling    */
+#ifdef EAPI
+       ,NULL,				/* EAPI: add_module		      */
+	NULL,				/* EAPI: remove_module		      */
+	NULL,				/* EAPI: rewrite_command	      */
+	NULL				/* EAPI: new_connection		      */
+#endif
 };
 #else
 static int
