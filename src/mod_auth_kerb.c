@@ -995,6 +995,8 @@ get_gss_creds(request_rec *r,
 		 "gss_import_name() failed"));
       return HTTP_INTERNAL_SERVER_ERROR;
    }
+
+   log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Acquiring creds for %s", buf);
    
    major_status = gss_acquire_cred(&minor_status, server_name, GSS_C_INDEFINITE,
 			           GSS_C_NO_OID_SET, GSS_C_ACCEPT,
