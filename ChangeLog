@@ -10,7 +10,7 @@
 
 	* apache1/auth_user.c:
 	* apache2/auth_user.c:
-	Added fail_status and kerbauthtype functionality.
+	Added fail_status, authoritative, and kerbauthtype functionality.
 
 	* apache1/dir_config.c:
 	* apache2/dir_config.c:

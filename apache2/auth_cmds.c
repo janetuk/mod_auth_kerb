@@ -6,7 +6,7 @@ static const char *kerb_set_fail_slot(cmd_parms *cmd, void *struct_ptr,
 		*(int *) ((char *)struct_ptr + offset) = HTTP_UNAUTHORIZED;
 	else if (!strncasecmp(arg, "forbidden", 9))
 		*(int *) ((char *)struct_ptr + offset) = HTTP_FORBIDDEN;
-	else if (!strncasecmp(arg, "declined", 9))
+	else if (!strncasecmp(arg, "declined", 8))
 		*(int *) ((char *)struct_ptr + offset) = DECLINED;
 	else
 		return apr_pstrcat(cmd->pool, "KrbAuthFailStatus must be Forbidden, Unauthorized, or Declined.", NULL);
@@ -20,20 +20,20 @@ static const char *kerb_set_type_slot(cmd_parms *cmd, void *struct_ptr,
 	if
 #ifdef KRB5
 	   (!strncasecmp(arg, "v5", 2))
-		*(char **) ((char *)struct_ptr + offset) = "KerberosV5";
+		*(char **) ((char *)struct_ptr + offset) = apr_pstrdup(cmd->pool, "KerberosV5");
 	else if
 #endif /* KRB5 */
 #ifdef KRB4
 	   (!strncasecmp(arg, "v4", 2))
-		*(char **) ((char *)struct_ptr + offset) = "KerberosV4";
+		*(char **) ((char *)struct_ptr + offset) = apr_pstrdup(cmd->pool, "KerberosV4");
 #endif /* KRB4 */
 #if defined(KRB5) && defined(KRB4)
 	else if
 	   (!strncasecmp(arg, "dualv5v4", 8))
-		*(char **) ((char *)struct_ptr + offset) = "KerberosDualV5V4";
+		*(char **) ((char *)struct_ptr + offset) = apr_pstrdup(cmd->pool, "KerberosDualV5V4");
 	else if
 	   (!strncasecmp(arg, "dualv4v5", 8))
-		*(char **) ((char *)struct_ptr + offset) = "KerberosDualV4V5";
+		*(char **) ((char *)struct_ptr + offset) = apr_pstrdup(cmd->pool, "KerberosDualV4V5");
 #endif /* KRB5 && KRB4 */
 	else
 		return "AuthKerberos must be V5, V4, DualV4V5, or DualV5V4.";
@@ -55,6 +55,14 @@ static const command_rec kerb_auth_cmds[] = {
 		(void*)APR_XtOffsetOf(kerb_auth_config, krb_fail_status),
 		OR_AUTHCFG,
 		"If auth fails, return status set here."
+	),
+
+	AP_INIT_FLAG(
+		"KrbAuthoritative",
+		ap_set_flag_slot,
+		(void*)APR_XtOffsetOf(kerb_auth_config, krb_authoritative),
+		OR_AUTHCFG,
+		"Refuse to pass request down to lower modules."
 	),
 
 	{ NULL }

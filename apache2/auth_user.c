@@ -52,7 +52,12 @@ int kerb_authenticate_user(request_rec *r) {
 	}
 
 	if (!KerberosV4 && !KerberosV5) {
-		return DECLINED;
+		if (conf->krb_authoritative) {
+			return HTTP_UNAUTHORIZED;
+		}
+		else {
+			return DECLINED;
+		}
 	}
 
 	name = ap_auth_name(r);
@@ -112,5 +117,10 @@ int kerb_authenticate_user(request_rec *r) {
 	}
 #endif /* KRB5 && KRB4 */
 
-	return retcode;
+	if (conf->krb_authoritative && retcode == DECLINED) {
+		return HTTP_UNAUTHORIZED;
+	}
+	else {
+		return retcode;
+	}
 }

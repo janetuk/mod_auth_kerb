@@ -18,10 +18,6 @@
 - Settable Location of Keytab/Srvtab
 	Again, in config instead of compiled in.
 
-- Authoritative Support
-	If Kerberos check fails, don't fall through to other modules.
-	Should I used AuthAuthoritative for this or a specific Kerb one?
-
 - Lifetime Settable
 	Set lifetime of tickets in config.
 
@@ -37,20 +33,11 @@
 	Set a lifetime on tickets, and after expiration, tries to -force-
 	a reauth (brings up login/password window)
 
-- Auth Fail Status
-	Set how a failure fails.  Forbidden or Unauthorized.
-
 - Forwardable/Renewable Tickets
 	Setting in config.
 
 - Browser Mutual Auth Support
 	Combined with plugins, use auth user already has.
-
-- AuthKerberosType(name?)
-	Way to both have a normal AuthType and a Kerberos authtype,
-	in case you want to turn authoritative off and have it punt
-	to something else specific
-	Re: msg 268 "Jason Gilbert"
 
 - Environment Variables
 	KRB5CCNAME, KRBTKFILE
