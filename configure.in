@@ -1,0 +1,189 @@
+# Process this file with autoconf to produce a configure script.
+AC_REVISION($Revision$)
+AC_PREREQ(2.53)
+AC_INIT(mod_auth_kerb, 0.5-rc2, kouril@users.sourceforge.net)
+AC_CONFIG_SRCDIR([src/mod_auth_kerb.c])
+AC_CONFIG_HEADER([config.h])
+
+# Checks for programs.
+AC_PROG_CC
+AC_PROG_MAKE_SET
+
+# Checks for libraries.
+# FIXME: Replace `main' with a function in `-lresolv':
+LIB_resolv=""
+AC_CHECK_LIB([resolv], [main], [LIB_resolv=-lresolv])
+AC_SUBST(LIB_resolv)
+
+# Checks for header files.
+#AC_HEADER_STDC
+#AC_CHECK_HEADERS([limits.h netdb.h stddef.h stdlib.h string.h unistd.h])
+
+# Checks for typedefs, structures, and compiler characteristics.
+#AC_C_CONST
+#AC_TYPE_SIZE_T
+AC_STRUCT_TM
+
+# Checks for library functions.
+#AC_FUNC_MALLOC
+#AC_FUNC_MEMCMP
+#AC_CHECK_FUNCS([gethostbyname memset putenv strcasecmp strchr strdup strerror])
+
+#
+# kerberos5 enviroment
+#
+KRB5_CPPFLAGS=""
+KRB5_LDFLAGS=""
+krb5_config_command=krb5-config
+
+AC_ARG_WITH(krb5,
+  AC_HELP_STRING([--with-krb5=dir],[use krb5 in dir]),
+  [ with_krb5="$withval" ])
+
+if test "x$with_krb5" != "xno" ; then
+  AC_MSG_CHECKING([for Kerberos5 installation])
+  if test "x$with_krb5" != "x"; then
+     if test ! -x "$with_krb5/bin/krb5-config"; then
+        AC_MSG_ERROR([failed to find krb5-config in $with_krb5/bin])
+     fi
+     krb5_config_command="$with_krb5/bin/krb5-config"
+  fi
+
+  KRB5_CPPFLAGS=`$krb5_config_command --cflags gssapi 2>/dev/null`
+  KRB5_LDFLAGS=`$krb5_config_command --libs gssapi 2>/dev/null`
+  if test "x$KRB5_LDFLAGS" = "x"; then
+     with_krb5=no
+     AC_MSG_RESULT(no)
+  else
+     AC_MSG_RESULT(yes)
+
+     ac_save_CFLAGS=$CFLAGS
+     ac_save_LDFLAGS=$LDFLAGS
+     ac_save_LIBS=$LIBS
+     CFLAGS="$CFLAGS $KRB5_CPPFLAGS"
+     LDFLAGS="$LDFLAGS $KRB5_LDFLAGS"
+     LIBS="$LIBS $LDFLAGS $LIB_resolv"
+
+     AC_CHECK_LIB(krb5, krb5_init_context, [], [with_krb5=no])
+
+     if test "x$with_krb5" != "xno"; then
+        # check if krb5_cc_gen_new() is implemented by the krb5 library
+        AC_CHECK_FUNC(krb5_cc_gen_new, [AC_DEFINE(HAVE_KRB5_CC_GEN_NEW)])
+
+        # check if you're using Heimdal
+        # ...
+     fi
+
+     CFLAGS=$ac_save_CFLAGS
+     LDFLAGS=$ac_save_LDFLAGS
+     LIBS=$ac_save_LIBS
+  fi
+fi
+
+#
+# Kerberos4 enviroment
+#
+KRB4_CPPFLAGS=""
+KRB4_LDFLAGS=""
+
+AC_ARG_WITH(krb4,
+  AC_HELP_STRING([--with-krb4=dir], [use krb4 in dir]),
+  [ with_krb4="$withval" ])
+
+if test "x$with_krb4" != "xno"; then
+  AC_MSG_CHECKING([for Kerberos4 installation])
+  if test "x$with_krb4" != "x"; then
+     if test -x "$with_krb4/bin/krb4-config"; then
+        KRB4_CPPFLAGS=`$with_krb4/bin/krb4-config --cflags krb4 2>/dev/null`
+        KRB4_LDFLAGS=`$with_krb4/bin/krb4-config --libs krb4 2>/dev/null`
+     elif test -x "$with_krb4/bin/krb5-config"; then
+        KRB4_CPPFLAGS=`$with_krb4/bin/krb5-config --cflags krb4 2>/dev/null`
+        KRB4_LDFLAGS=`$with_krb4/bin/krb5-config --libs krb4 2>/dev/null`
+     else
+        AC_MSG_ERROR([failed to find krb4-config or krb5-config in $with_krb4/bin])
+     fi
+  else
+     KRB4_CPPFLAGS=`krb4-config --cflags krb4 2>/dev/null`
+     KRB4_LDFLAGS=`krb4-config --libs krb4 2>/dev/null`
+     if test "x$KRB4_LDFLAGS" = "x"; then
+        KRB4_CPPFLAGS=`$krb5_config_command --cflags krb4 2>/dev/null`
+        KRB4_LDFLAGS=`$krb5_config_command --libs krb4 2>/dev/null`
+     fi
+  fi
+  if test "x$KRB4_LDFLAGS" = "x"; then
+     with_krb4=no
+     AC_MSG_RESULT(no)
+  else
+     AC_MSG_RESULT(yes)
+
+     ac_save_CFLAGS=$CFLAGS
+     ac_save_LDFLAGS=$LDFLAGS
+     ac_save_LIBS=$LIBS
+     CFLAGS="$CFLAGS $KRB4_CPPFLAGS"
+     LDFLAGS="$LDFLAGS $KRB4_LDFLAGS"
+     LIBS="$LIBS $LDFLAGS $LIB_resolv"
+  
+     AC_CHECK_LIB(krb4, krb_get_pw_in_tkt, [], [with_krb4=no])
+     if test "x$with_krb4" = "xno"; then
+        AC_CHECK_LIB(krb, krb_get_pw_in_tkt, [with_krb4=yes], 
+                     [with_krb4=no
+                      KRB4_CPPFLAGS=""
+                      KRB4_LDFLAGS=""])
+     fi
+
+     CFLAGS=$ac_save_CFLAGS
+     LDFLAGS=$ac_save_LDFLAGS
+     LIBS=$ac_save_LIBS
+  fi
+fi
+
+if test "x$with_krb5" = "xno" -a "x$with_krb4" = "xno"; then
+  AC_MSG_ERROR([No Kerberos enviroment found])
+fi
+
+AC_SUBST(KRB5_CPPFLAGS)
+AC_SUBST(KRB5_LDFLAGS)
+AC_SUBST(KRB4_CPPFLAGS)
+AC_SUBST(KRB4_LDFLAGS)
+if test "x$with_krb5" != "xno"; then
+   AC_DEFINE(KRB5)
+fi
+if test "x$with_krb4" != "xno"; then
+   AC_DEFINE(KRB4)
+fi
+
+#
+# Apache enviroment
+#
+AC_ARG_WITH(apache,
+  AC_HELP_STRING([--with-apache=dir],[use apache in dir]),
+  [ with_apache="$withval" ])
+
+AC_MSG_CHECKING([for Apache installation])
+
+APXS="apxs"
+HTTPD="httpd"
+if test "x$with_apache" != "x"; then
+  if test ! -x "$with_apache/bin/httpd" -o ! -x "$with_apache/bin/apxs"; then
+     AC_MSG_ERROR([failed to find apache files in $with_apache])
+  fi
+  APXS="$with_apache/bin/apxs"
+  HTTPD="$with_apache/bin/httpd"
+fi
+
+apache_v1_3=`$HTTPD -v | grep "^Server version: Apache/1.3."`
+apache_v2_0=`$HTTPD -v | grep "^Server version: Apache/2.0."`
+if test "x$apache_v1_3" = "x" -a "x$apache_v2_0" = "x"; then
+  AC_MSG_ERROR([cannot find valid apache installation on your system])
+fi
+if test -n "$apache_v1_3"; then
+  AC_DEFINE(APXS1)
+fi
+AC_MSG_RESULT(yes)
+
+AC_SUBST(APXS)
+
+AC_CONFIG_FILES([Makefile
+                 spnegokrb5/Makefile])
+
+AC_OUTPUT

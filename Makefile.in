@@ -1,0 +1,31 @@
+APXS = @APXS@
+KRB5_CPPFLAGS = @KRB5_CPPFLAGS@
+KRB5_LDFLAGS = @KRB5_LDFLAGS@
+KRB4_CPPFLAGS = @KRB4_CPPFLAGS@
+KRB4_LDFLAGS = @KRB4_LDFLAGS@
+LIB_resolv = @LIB_resolv@
+
+CPPFLAGS = $(KRB5_CPPFLAGS) $(KRB4_CPPFLAGS) $(DEFS) -I.
+LDFLAGS = -Lspnegokrb5 -lspnegokrb5 $(KRB5_LDFLAGS) $(LIB_resolv)
+
+ifdef SPNEGO_ONLY
+   TARGET = libspnegokrb5
+else
+   TARGET = modauthkerb
+endif
+
+all: $(TARGET)
+
+libspnegokrb5:
+	(cd spnegokrb5 && make)
+
+modauthkerb: libspnegokrb5
+	$(APXS) -c $(CPPFLAGS) $(LDFLAGS) src/mod_auth_kerb.c
+
+install: $(TARGET)
+	$(APXS) -i $(CPPFLAGS) $(LDFLAGS) src/mod_auth_kerb.so
+
+clean:
+	(cd spnegokrb5 && make clean)
+	$(RM) *.o *.so *.a *.la *.lo *.slo core
+	$(RM) src/*.{o,so,a,la,lo,slo}
