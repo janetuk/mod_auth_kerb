@@ -481,7 +481,7 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
    }
 
    ret = krb5_sname_to_principal(context, ap_get_server_name(r), service, 
-	 			 KRB5_NT_SRV_HST, &server);
+	 			 KRB5_NT_UNKNOWN, &server);
    if (ret) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	         "krb5_sname_to_principal() failed: %s",
