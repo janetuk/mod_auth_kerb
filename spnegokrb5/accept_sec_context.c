@@ -1,67 +1,171 @@
 /*
  * SPNEGO wrapper for Kerberos5 GSS-API 
  * kouril@ics.muni.cz, 2003
+ * (mostly based on Heimdal code)
  */
 
 #include "spnegokrb5_locl.h"
-
-#define ALLOC(X) (X) = calloc(1, sizeof(*(X)))
 
 #define OID_cmp(o1, o2) \
 	(((o1)->length == (o2)->length) && \
 	 (memcmp((o1)->components, (o2)->components,(int) (o1)->length) == 0))
 
-static int
-create_reply(OM_uint32 major_status, gss_OID mech, gss_buffer_t mech_token,
-             gss_buffer_t output_token)
+static OM_uint32
+code_NegTokenArg(OM_uint32 *minor_status,
+		 const NegTokenTarg *targ,
+		 unsigned char **outbuf,
+		 size_t *outbuf_size)
 {
-   NegTokenTarg targ_token;
-   unsigned char *buf = NULL;
-   size_t buf_size;
-   size_t len;
-   int ret;
+    OM_uint32 ret;
+    u_char *buf;
+    size_t buf_size, buf_len;
 
-   memset(&targ_token, 0, sizeof(targ_token));
-   
-   ALLOC(targ_token.negResult);
-   if (targ_token.negResult == NULL)
-      return ENOMEM;
+    buf_size = 1024;
+    buf = malloc(buf_size);
+    if (buf == NULL) {
+	*minor_status = ENOMEM;
+	return GSS_S_FAILURE;
+    }
 
-   *targ_token.negResult = (major_status == 0) ? accept_completed : accept_incomplete;
+    do {
+	ret = encode_NegTokenTarg(buf + buf_size -1,
+				  buf_size,
+				  targ, &buf_len);
+	if (ret == 0) {
+	    size_t tmp;
 
-   ALLOC(targ_token.supportedMech);
-   if (targ_token.supportedMech == NULL) {
-      ret = ENOMEM;
-      goto end;
-   }
-   copy_MechType((oid*)mech, targ_token.supportedMech);
+	    ret = der_put_length_and_tag(buf + buf_size - buf_len - 1,
+					 buf_size - buf_len,
+					 buf_len,
+					 CONTEXT,
+					 CONS,
+					 1,
+					 &tmp);
+	    if (ret == 0)
+		buf_len += tmp;
+	}
+	if (ret) {
+	    if (ret == ASN1_OVERFLOW) {
+		u_char *tmp;
 
-   if (mech_token->length > 0) {
-      ALLOC(targ_token.responseToken);
-      if (targ_token.responseToken == NULL) {
-	 ret = ENOMEM;
-	 goto end;
-      }
-      targ_token.responseToken->data = malloc(mech_token->length);
-      memcpy(targ_token.responseToken->data, mech_token->value, mech_token->length);
-      targ_token.responseToken->length = mech_token->length;
-   }
+		buf_size *= 2;
+		tmp = realloc (buf, buf_size);
+		if (tmp == NULL) {
+		    *minor_status = ENOMEM;
+		    free(buf);
+		    return GSS_S_FAILURE;
+		}
+		buf = tmp;
+	    } else {
+		*minor_status = ret;
+		free(buf);
+		return GSS_S_FAILURE;
+	    }
+	}
+    } while (ret == ASN1_OVERFLOW);
 
-   ASN1_MALLOC_ENCODE(NegTokenTarg, buf, buf_size, &targ_token, &len, ret);
-   if (ret || buf_size != len) {
-      ret = EINVAL;
-      goto end;
-   }
+    *outbuf      = buf + buf_size - buf_len;
+    *outbuf_size = buf_len;
+    return GSS_S_COMPLETE;
+}
 
-   output_token->value = buf;
-   output_token->length = buf_size;
-   buf = NULL;
-   ret = 0;
+static OM_uint32
+send_reject (OM_uint32 *minor_status,
+	     gss_buffer_t output_token)
+{
+    NegTokenTarg targ;
+    u_char *buf;
+    size_t buf_size;
+    OM_uint32 ret;
 
-end:
-   free_NegTokenTarg(&targ_token);
+    targ.negResult = malloc(sizeof(*targ.negResult));
+    if (targ.negResult == NULL) {
+	*minor_status = ENOMEM;
+	return GSS_S_FAILURE;
+    }
+    *(targ.negResult) = reject;
+    targ.supportedMech = NULL;
+    targ.responseToken = NULL;
+    targ.mechListMIC   = NULL;
+    
+    ret = code_NegTokenArg (minor_status, &targ, &buf, &buf_size);
+    free_NegTokenTarg(&targ);
+    if (ret)
+	return ret;
 
-   return ret;
+    ret = gssapi_spnego_encapsulate(minor_status,
+			            buf, buf_size,
+			            output_token,
+			            GSS_SPNEGO_MECH);
+    free(buf);
+    if (ret)
+	return ret;
+    return GSS_S_BAD_MECH;
+}
+
+static OM_uint32
+send_accept (OM_uint32 *minor_status,
+	     gss_buffer_t output_token,
+	     gss_buffer_t mech_token)
+{
+    NegTokenTarg targ;
+    u_char *buf;
+    size_t buf_size;
+    OM_uint32 ret;
+
+    memset(&targ, 0, sizeof(targ));
+    targ.negResult = malloc(sizeof(*targ.negResult));
+    if (targ.negResult == NULL) {
+	*minor_status = ENOMEM;
+	return GSS_S_FAILURE;
+    }
+    *(targ.negResult) = accept_completed;
+
+    targ.supportedMech = malloc(sizeof(*targ.supportedMech));
+    if (targ.supportedMech == NULL) {
+	free_NegTokenTarg(&targ);
+	*minor_status = ENOMEM;
+	return GSS_S_FAILURE;
+    }
+
+    ret = der_get_oid(GSS_KRB5_MECH->elements,
+		      GSS_KRB5_MECH->length,
+		      targ.supportedMech,
+		      NULL);
+    if (ret) {
+	free_NegTokenTarg(&targ);
+	*minor_status = ENOMEM;
+	return GSS_S_FAILURE;
+    }
+
+    if (mech_token != NULL && mech_token->length != 0) {
+	targ.responseToken = malloc(sizeof(*targ.responseToken));
+	if (targ.responseToken == NULL) {
+	    free_NegTokenTarg(&targ);
+	    *minor_status = ENOMEM;
+	    return GSS_S_FAILURE;
+	}
+	targ.responseToken->length = mech_token->length;
+	targ.responseToken->data   = mech_token->value;
+	mech_token->length = 0;
+	mech_token->value  = NULL;
+    } else {
+	targ.responseToken = NULL;
+    }
+
+    ret = code_NegTokenArg (minor_status, &targ, &buf, &buf_size);
+    free_NegTokenTarg(&targ);
+    if (ret)
+	return ret;
+
+    ret = gssapi_spnego_encapsulate(minor_status,
+			            buf, buf_size,
+			            output_token,
+			      	    GSS_SPNEGO_MECH);
+    free(buf);
+    if (ret)
+	return ret;
+    return GSS_S_COMPLETE;
 }
 
 OM_uint32 gss_accept_sec_context_spnego
@@ -79,59 +183,81 @@ OM_uint32 gss_accept_sec_context_spnego
 {
    NegTokenInit init_token;
    OM_uint32 major_status;
-   gss_buffer_desc krb5_output_token = GSS_C_EMPTY_BUFFER;
-   gss_buffer_desc krb5_input_token = GSS_C_EMPTY_BUFFER;
-   size_t len;
-   int ret;
+   gss_buffer_desc ibuf, obuf;
+   gss_buffer_t ot = NULL;
+   OM_uint32 minor;
+   unsigned char *buf;
+   size_t buf_size;
+   size_t len, taglen, ni_len;
+   int found = 0;
+   int ret, i;
 
    memset(&init_token, 0, sizeof(init_token));
 
-   ret = decode_NegTokenInit(input_token_buffer->value, 
-	                     input_token_buffer->length,
-			     &init_token, &len);
+   ret = gssapi_spnego_decapsulate(minor_status, input_token_buffer,
+	 			   &buf, &buf_size, GSS_SPNEGO_MECH);
+   if (ret)
+      return ret;
+
+   ret = der_match_tag_and_length(buf, buf_size, CONTEXT, CONS,
+	 			  0, &len, &taglen);
+   if (ret)
+      return ret;
+
+   ret = decode_NegTokenInit(buf + taglen, len, &init_token, &ni_len);
    if (ret) {
       *minor_status = EINVAL; /* XXX */
       return GSS_S_DEFECTIVE_TOKEN;
    }
 
-   if (init_token.mechTypes == NULL || init_token.mechTypes->len == 0 ||
-       OID_cmp(&init_token.mechTypes->val[0], (oid *)GSS_KRB5_MECH)) {
-      *minor_status = EINVAL;
-      ret = GSS_S_BAD_MECH;
-      goto end;
-   }
-       
-   if (init_token.mechToken) {
-      krb5_input_token.value = init_token.mechToken->data;
-      krb5_input_token.length = init_token.mechToken->length;
-   }
-   
-   major_status = gss_accept_sec_context(minor_status,
-	 				 context_handle,
-					 acceptor_cred_handle,
-					 &krb5_input_token,
-					 input_chan_bindings,
-					 src_name,
-					 mech_type,
-					 &krb5_output_token,
-					 ret_flags,
-					 time_rec,
-					 delegated_cred_handle);
-   if (GSS_ERROR(major_status)) {
-      ret = major_status;
-      goto end;
+   if (init_token.mechTypes == NULL)
+      return send_reject (minor_status, output_token);
+
+   for (i = 0; !found && i < init_token.mechTypes->len; ++i) {
+      char mechbuf[17];
+      size_t mech_len;
+
+      ret = der_put_oid (mechbuf + sizeof(mechbuf) - 1,
+                         sizeof(mechbuf),
+                         &init_token.mechTypes->val[i],
+                         &mech_len);
+      if (ret)
+          return GSS_S_DEFECTIVE_TOKEN;
+      if (mech_len == GSS_KRB5_MECH->length
+          && memcmp(GSS_KRB5_MECH->elements,
+                    mechbuf + sizeof(mechbuf) - mech_len,
+                    mech_len) == 0)
+          found = 1;
    }
 
-   ret = create_reply(major_status, GSS_KRB5_MECH, &krb5_output_token, output_token);
-   if (ret) {
-      *minor_status = ret;
-      ret = GSS_S_FAILURE;
-      free(output_token);
+   if (!found)
+      return send_reject (minor_status, output_token);
+
+   if (init_token.mechToken != NULL) {
+      ibuf.length = init_token.mechToken->length;
+      ibuf.value  = init_token.mechToken->data;
+
+      major_status = gss_accept_sec_context(&minor,
+	    				    context_handle,
+					    acceptor_cred_handle,
+					    &ibuf,
+					    input_chan_bindings,
+					    src_name,
+					    mech_type,
+					    &obuf,
+					    ret_flags,
+					    time_rec,
+					    delegated_cred_handle);
+      if (GSS_ERROR(major_status)) {
+	 send_reject (minor_status, output_token);
+	 return major_status;
+      }
+      ot = &obuf;
    }
 
-end:
-   free_NegTokenInit(&init_token);
+   ret = send_accept (minor_status, output_token, ot);
+   if (ot != NULL)
+      gss_release_buffer(&minor, ot);
 
    return ret;
 }
-

@@ -1,11 +1,10 @@
 /*
  *  SPNEGO wrapper for Kerberos5 GSS-API
  *  kouril@ics.muni.cz, 2003
+ *  (mostly based on Heimdal code)
  */
 
 #include "spnegokrb5_locl.h"
-
-#define ALLOC(X) (X) = calloc(1, sizeof(*(X)))
 
 static int
 add_mech(MechTypeList *mech_list, gss_OID mech)
@@ -27,6 +26,7 @@ add_mech(MechTypeList *mech_list, gss_OID mech)
    return 0;
 }
 
+#if 0
 static int
 set_context_flags(OM_uint32 req_flags, ContextFlags *flags)
 {
@@ -46,6 +46,7 @@ set_context_flags(OM_uint32 req_flags, ContextFlags *flags)
       flags->integFlag = 1;
    return 0;
 }
+#endif
 
 OM_uint32 gss_init_sec_context_spnego(
 	    OM_uint32 * minor_status,
@@ -170,7 +171,7 @@ OM_uint32 gss_init_sec_context_spnego(
 
     ret = gssapi_spnego_encapsulate(minor_status,
 	                            buf + buf_size - len, len,
-				    output_token, "\x01\x00");
+				    output_token, GSS_SPNEGO_MECH);
 
    ret = major_status;
 

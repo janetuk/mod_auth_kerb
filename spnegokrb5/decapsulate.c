@@ -31,14 +31,16 @@
  * SUCH DAMAGE. 
  */
 
-#include "gssapi_locl.h"
+#include "spnegokrb5_locl.h"
 
+#if 0
 RCSID("$Id$");
+#endif
 
 OM_uint32
-gssapi_krb5_verify_header(u_char **str,
+gssapi_verify_mech_header(u_char **str,
 			  size_t total_len,
-			  char *type)
+			  const gss_OID mech)
 {
     size_t len, len_len, mech_len, foo;
     int e;
@@ -59,47 +61,45 @@ gssapi_krb5_verify_header(u_char **str,
     if (e)
 	return GSS_S_DEFECTIVE_TOKEN;
     p += foo;
-    if (mech_len != GSS_KRB5_MECHANISM->length)
+    if (mech_len != mech->length)
 	return GSS_S_BAD_MECH;
     if (memcmp(p,
-	       GSS_KRB5_MECHANISM->elements,
-	       GSS_KRB5_MECHANISM->length) != 0)
+	       mech->elements,
+	       mech->length) != 0)
 	return GSS_S_BAD_MECH;
     p += mech_len;
-    if (memcmp (p, type, 2) != 0)
-	return GSS_S_DEFECTIVE_TOKEN;
-    p += 2;
     *str = p;
     return GSS_S_COMPLETE;
 }
 
 /*
- * Remove the GSS-API wrapping from `in_token' giving `out_data.
+ * Remove the GSS-API wrapping from `in_token' giving `buf and buf_size'
  * Does not copy data, so just free `in_token'.
  */
 
 OM_uint32
-gssapi_krb5_decapsulate(
+gssapi_spnego_decapsulate(
 			OM_uint32 *minor_status,    
 			gss_buffer_t input_token_buffer,
-			krb5_data *out_data,
-			char *type
+			unsigned char **buf,
+			size_t *buf_len, 
+			const gss_OID mech
 )
 {
     u_char *p;
     OM_uint32 ret;
 
     p = input_token_buffer->value;
-    ret = gssapi_krb5_verify_header(&p,
+    ret = gssapi_verify_mech_header(&p,
 				    input_token_buffer->length,
-				    type);
+				    mech);
     if (ret) {
-	*minor_status = 0;
-	return ret;
+	*minor_status = ret;
+	return GSS_S_FAILURE;
     }
 
-    out_data->length = input_token_buffer->length -
+    *buf_len = input_token_buffer->length -
 	(p - (u_char *)input_token_buffer->value);
-    out_data->data   = p;
+    *buf = p;
     return GSS_S_COMPLETE;
 }

@@ -34,17 +34,14 @@
 #include "spnegokrb5_locl.h"
 
 void
-gssapi_spnego_encap_length (size_t data_len,
-			    size_t *len,
-			    size_t *total_len)
+gssapi_encap_length (size_t data_len,
+		     size_t *len,
+		     size_t *total_len,
+		     const gss_OID mech)
 {
     size_t len_len;
 
-#if 0
-    *len = 1 + 1 + GSS_SPNEGO_MECH->length + 2 + data_len;
-#else
-    *len = 1 + 1 + GSS_SPNEGO_MECH->length + data_len;
-#endif
+    *len = 1 + 1 + mech->length + data_len;
 
     len_len = length_len(*len);
 
@@ -52,9 +49,9 @@ gssapi_spnego_encap_length (size_t data_len,
 }
 
 u_char *
-gssapi_spnego_make_header (u_char *p,
-			   size_t len,
-			   u_char *type)
+gssapi_mech_make_header (u_char *p,
+			 size_t len,
+			 const gss_OID mech)
 {
     int e;
     size_t len_len, foo;
@@ -66,13 +63,9 @@ gssapi_spnego_make_header (u_char *p,
 	abort ();
     p += len_len;
     *p++ = 0x06;
-    *p++ = GSS_SPNEGO_MECH->length;
-    memcpy (p, GSS_SPNEGO_MECH->elements, GSS_SPNEGO_MECH->length);
-    p += GSS_SPNEGO_MECH->length;
-#if 0
-    memcpy (p, type, 2);
-    p += 2;
-#endif
+    *p++ = mech->length;
+    memcpy (p, mech->elements, mech->length);
+    p += mech->length;
     return p;
 }
 
@@ -86,13 +79,13 @@ gssapi_spnego_encapsulate(
 			unsigned char *buf,
 			size_t buf_size,
 			gss_buffer_t output_token,
-			u_char *type
+			const gss_OID mech
 )
 {
     size_t len, outer_len;
     u_char *p;
 
-    gssapi_spnego_encap_length (buf_size, &len, &outer_len);
+    gssapi_encap_length (buf_size, &len, &outer_len, mech);
     
     output_token->length = outer_len;
     output_token->value  = malloc (outer_len);
@@ -101,7 +94,7 @@ gssapi_spnego_encapsulate(
 	return GSS_S_FAILURE;
     }	
 
-    p = gssapi_spnego_make_header (output_token->value, len, type);
+    p = gssapi_mech_make_header (output_token->value, len, mech);
     memcpy (p, buf, buf_size);
     return GSS_S_COMPLETE;
 }
