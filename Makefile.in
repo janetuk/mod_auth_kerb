@@ -11,13 +11,13 @@ INSTALL = @INSTALL@
 all: mod_auth_kerb
 
 mod_auth_kerb: mod_auth_kerb.c
-	$(APXS) -c  ${CFLAGS} ${LDFLAGS} ${LIBS} mod_auth_kerb.c
+	$(APXS) -c ${CFLAGS} ${LDFLAGS} ${LIBS} mod_auth_kerb.c
 
 install:
 	$(APXS) -c -i ${CFLAGS} ${LDFLAGS} ${LIBS} mod_auth_kerb.c
 
 clean:
-	/bin/rm -rf core *.o *.la *.lo *.slo .libs
+	/bin/rm -rf core *.o *.la *.lo *.slo *.so .libs
 
 distclean: clean
 	/bin/rm -f Makefile config.h config.status config.cache config.log mod_auth_kerb.c

@@ -41,7 +41,7 @@ int kerb_authenticate_user(request_rec *r) {
 
 	if (!auth_line) {
 		apr_table_set(r->err_headers_out, "WWW-Authenticate",
-			(char *)ap_pstrcat(r->pool, "Basic realm=\"", name, "\"", NULL));
+			(char *)apr_pstrcat(r->pool, "Basic realm=\"", name, "\"", NULL));
 		return HTTP_UNAUTHORIZED;
 	}
 
