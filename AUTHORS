@@ -1,8 +1,0 @@
-Daniel Henninger:
-Incorporation of a variety of new features since taking over the module from
-James Robinson.  Added Apache 2.x compatibilty.  Split up/cleaned up code
-and moved towards configure script based configuration.
-
-James Robinson:
-Wrote the initial mod_auth_kerb module of which I (Daniel Henninger) was asked
-to take over.

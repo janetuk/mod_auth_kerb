@@ -1,9 +1,0 @@
-5.0 alpha2:
-
-* Returned to single file layout as new layout was harder to follow.
-
-5.0 alpha1:
-
-* New layout set up and configure script added.
-
-* Currently only krb5 and krb4 auth checks work, nothing else is coded.
