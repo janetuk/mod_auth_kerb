@@ -198,13 +198,13 @@ static const command_rec kerb_auth_cmds[] = {
 /* This is our replacement krb5_rc_store function */
 static krb5_error_code
 mod_auth_kerb_rc_store(krb5_context context, krb5_rcache rcache,
-                        krb5_donot_replay *donot_replay)
+                       krb5_donot_replay_internal *donot_replay)
 {
    return 0;
 }
 
 /* And this is the operations vector for our replay cache */
-const krb5_rc_ops mod_auth_kerb_rc_ops = {
+const krb5_rc_ops_internal mod_auth_kerb_rc_ops = {
   0,
   "dfl",
   krb5_rc_dfl_init,

@@ -104,16 +104,16 @@
  */
 
 /* Definition from MIT krb5-1.3.3 krb5.h */
-typedef struct _krb5_donot_replay {
+typedef struct _krb5_donot_replay_internal {
     krb5_magic magic;
     char *server;                       /* null-terminated */
     char *client;                       /* null-terminated */
     krb5_int32 cusec;
     krb5_timestamp ctime;
-} krb5_donot_replay;
+} krb5_donot_replay_internal;
 
 /* Definitions from MIT krb5-1.3.3 k5-int.h */
-struct _krb5_rc_ops {
+struct _krb5_rc_ops_internal {
     krb5_magic magic;
     char *type;
     krb5_error_code (KRB5_CALLCONV *init)
@@ -125,7 +125,7 @@ struct _krb5_rc_ops {
     krb5_error_code (KRB5_CALLCONV *close)
         (krb5_context, krb5_rcache);
     krb5_error_code (KRB5_CALLCONV *store)
-        (krb5_context, krb5_rcache,krb5_donot_replay *);
+        (krb5_context, krb5_rcache,krb5_donot_replay_internal *);
     krb5_error_code (KRB5_CALLCONV *expunge)
         (krb5_context, krb5_rcache);
     krb5_error_code (KRB5_CALLCONV *get_span)
@@ -136,7 +136,7 @@ struct _krb5_rc_ops {
         (krb5_context, krb5_rcache, char *);
 };
 
-typedef struct _krb5_rc_ops krb5_rc_ops;
+typedef struct _krb5_rc_ops_internal krb5_rc_ops_internal;
 
 /* Definitions from MIT krb5-1.3.3 rc_dfl.h */
 extern krb5_error_code KRB5_CALLCONV krb5_rc_dfl_init
@@ -172,7 +172,7 @@ extern krb5_error_code KRB5_CALLCONV krb5_rc_dfl_resolve
  * the definition in krb5.h */
 struct krb5_rc_st_internal {
 	krb5_magic magic;
-	const struct _krb5_rc_ops *ops;
+	const struct _krb5_rc_ops_internal *ops;
 	krb5_pointer data;
 };
 
