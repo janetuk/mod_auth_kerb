@@ -48,16 +48,18 @@
 
 #define MODAUTHKERB_VERSION "5.0-rc4"
 
-#ifndef APXS1
-#include "ap_compat.h"
-#include "apr_strings.h"
+#include <httpd.h>
+#include <http_config.h>
+#include <http_core.h>
+#include <http_log.h>
+#include <http_protocol.h>
+#include <http_request.h>
+
+#ifdef STANDARD20_MODULE_STUFF
+#include <ap_compat.h>
+#include <apr_strings.h>
 #endif
-#include "httpd.h"
-#include "http_config.h"
-#include "http_core.h"
-#include "http_log.h"
-#include "http_protocol.h"
-#include "http_request.h"
+
 
 #ifdef KRB5
 #include <krb5.h>
@@ -83,28 +85,27 @@
 #include <netdb.h> /* gethostbyname() */
 #endif /* KRB4 */
 
-#ifdef APXS1
-module auth_kerb_module;
-#else
+#ifdef STANDARD20_MODULE_STUFF
 module AP_MODULE_DECLARE_DATA auth_kerb_module;
+#else
+module auth_kerb_module;
 #endif
 
 /*************************************************************************** 
  Macros To Ease Compatibility
  ***************************************************************************/
-#ifdef APXS1
+#ifdef STANDARD20_MODULE_STUFF
+#define MK_POOL apr_pool_t
+#define MK_TABLE_GET apr_table_get
+#define MK_USER r->user
+#define MK_AUTH_TYPE r->ap_auth_type
+#else
 #define MK_POOL pool
 #define MK_TABLE_GET ap_table_get
 #define MK_USER r->connection->user
 #define MK_AUTH_TYPE r->connection->ap_auth_type
 #define PROXYREQ_PROXY STD_PROXY
-#else
-#define MK_POOL apr_pool_t
-#define MK_TABLE_GET apr_table_get
-#define MK_USER r->user
-#define MK_AUTH_TYPE r->ap_auth_type
-#endif /* APXS1 */
-
+#endif
 
 /*************************************************************************** 
  Auth Configuration Structure
@@ -133,16 +134,16 @@ set_kerb_auth_headers(request_rec *r, const kerb_auth_config *conf,
 static const char*
 krb5_save_realms(cmd_parms *cmd, kerb_auth_config *sec, char *arg);
 
-#ifdef APXS1
+#ifdef STANDARD20_MODULE_STUFF
+#define command(name, func, var, type, usage)           \
+  AP_INIT_ ## type (name, func,                         \
+        (void*)APR_XtOffsetOf(kerb_auth_config, var),   \
+        OR_AUTHCFG, usage)
+#else
 #define command(name, func, var, type, usage) 		\
   { name, func, 					\
     (void*)XtOffsetOf(kerb_auth_config, var), 		\
     OR_AUTHCFG, type, usage }
-#else
-#define command(name, func, var, type, usage)		\
-  AP_INIT_ ## type (name, func, 			\
-	(void*)APR_XtOffsetOf(kerb_auth_config, var),	\
-	OR_AUTHCFG, usage)
 #endif
 
 static const command_rec kerb_auth_cmds[] = {
@@ -235,10 +236,10 @@ void log_rerror(const char *file, int line, int level, int status,
    va_end(ap);
 
    
-#ifdef APXS1
-   ap_log_rerror(file, line, level | APLOG_NOERRNO, r, "%s", errstr);
-#else
+#ifdef STANDARD20_MODULE_STUFF
    ap_log_rerror(file, line, level | APLOG_NOERRNO, status, r, "%s", errstr);
+#else
+   ap_log_rerror(file, line, level | APLOG_NOERRNO, r, "%s", errstr);
 #endif
 }
 
@@ -1226,7 +1227,7 @@ int kerb_authenticate_user(request_rec *r)
 /*************************************************************************** 
  Module Setup/Configuration
  ***************************************************************************/
-#ifdef APXS1
+#ifndef STANDARD20_MODULE_STUFF
 module MODULE_VAR_EXPORT auth_kerb_module = {
 	STANDARD_MODULE_STUFF,
 	NULL,				/*      module initializer            */
