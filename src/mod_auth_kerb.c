@@ -70,6 +70,8 @@
 
 #ident "$Id$"
 
+#include "config.h"
+
 #define MODAUTHKERB_VERSION "5.0-rc2"
 
 #ifndef APXS1
@@ -118,21 +120,13 @@ module AP_MODULE_DECLARE_DATA auth_kerb_module;
 #ifdef APXS1
 #define MK_POOL pool
 #define MK_TABLE_GET ap_table_get
-#define MK_TABLE_SET ap_table_set
-#define MK_TABLE_TYPE table
-#define MK_PSTRDUP ap_pstrdup
 #define MK_USER r->connection->user
 #define MK_AUTH_TYPE r->connection->ap_auth_type
-#define MK_ARRAY_HEADER array_header
 #else
 #define MK_POOL apr_pool_t
 #define MK_TABLE_GET apr_table_get
-#define MK_TABLE_SET apr_table_set
-#define MK_TABLE_TYPE apr_table_t
-#define MK_PSTRDUP apr_pstrdup
 #define MK_USER r->user
 #define MK_AUTH_TYPE r->ap_auth_type
-#define MK_ARRAY_HEADER apr_array_header_t
 #endif /* APXS1 */
 
 
@@ -239,20 +233,23 @@ void log_rerror(const char *file, int line, int level, int status,
                 const request_rec *r, const char *fmt, ...)
 {
    char errstr[1024];
+   char errnostr[1024];
    va_list ap;
 
    va_start(ap, fmt);
    vsnprintf(errstr, sizeof(errstr), fmt, ap);
    va_end(ap);
+
+   errnostr[0] = '\0';
+   if (errno)
+      snprintf(errnostr, sizeof(errnostr), "%s: (%s)", errstr, strerror(errno));
+   else
+      snprintf(errnostr, sizeof(errnostr), "%s", errstr);
    
-   /* these functions also print out current errno (if not zero), resulting in
-    * lines of the format:
-    *    (errno)strerror(errno): errstr
-    * This behaviour can be avoided by using APLOG_NOERRNO */
 #ifdef APXS1
-   ap_log_rerror(file, line, level, r, "%s", errstr);
+   ap_log_rerror(file, line, level | APLOG_NOERRNO, r, "%s", errnostr);
 #else
-   ap_log_rerror(file, line, level, status, r, "%s", errstr);
+   ap_log_rerror(file, line, level | APLOG_NOERRNO, status, r, "%s", errnostr);
 #endif
 }
 
@@ -511,10 +508,11 @@ create_krb5_ccache(krb5_context kcontext,
    int ret;
    krb5_ccache tmp_ccache = NULL;
 
-#ifdef HEIMDAL
-   /* new MIT krb5-1.3.x also supports this call */
+#ifdef HAVE_KRB5_CC_GEN_NEW
    problem = krb5_cc_gen_new(kcontext, &krb5_fcc_ops, &tmp_ccache);
 #else
+   /* only older MIT seem to not have the krb5_cc_gen_new() call, so we use
+    * MIT specific call here */
    problem = krb5_fcc_generate_new(kcontext, &tmp_ccache);
    /* krb5_fcc_generate_new() doesn't set KRB5_TC_OPENCLOSE, which makes 
       krb5_cc_initialize() fail */
@@ -630,9 +628,11 @@ int authenticate_user_krb5pwd(request_rec *r,
       goto end;
    } 
 
-#ifdef HEIMDAL
+#ifdef HAVE_KRB5_CC_GEN_NEW
    code = krb5_cc_gen_new(kcontext, &krb5_mcc_ops, &ccache);
 #else
+   /* only older MIT seem to not have the krb5_cc_gen_new() call, so we use
+    * MIT specific call here */
    code = krb5_mcc_generate_new(kcontext, &ccache);
 #endif
    if (code) {
@@ -861,12 +861,6 @@ authenticate_user_gss(request_rec *r,
   int ret;
   gss_name_t client_name = GSS_C_NO_NAME;
   gss_cred_id_t delegated_cred = GSS_C_NO_CREDENTIAL;
-  static int initial_return = HTTP_UNAUTHORIZED;
-
-  /* needed to work around replay caches */
-  if (!ap_is_initial_req(r))
-     return initial_return;
-  initial_return = HTTP_UNAUTHORIZED;
 
   if (gss_connection == NULL) {
      gss_connection = ap_pcalloc(r->connection->pool, sizeof(*gss_connection));
@@ -1003,11 +997,20 @@ end:
 
   cleanup_gss_connection(gss_connection);
 
-  initial_return = ret;
   return ret;
 }
 #endif /* KRB5 */
 
+static int
+already_succeeded(request_rec *r)
+{
+   if (ap_is_initial_req(r) || MK_AUTH_TYPE == NULL)
+      return 0;
+   if (strcmp(MK_AUTH_TYPE, "Negotiate") ||
+       (strcmp(MK_AUTH_TYPE, "Basic") && strchr(MK_USER, '@')))
+      return 1;
+   return 0;
+}
 
 static void
 note_kerb_auth_failure(request_rec *r, const kerb_auth_config *conf,
@@ -1047,6 +1050,7 @@ int kerb_authenticate_user(request_rec *r)
    const char *type = NULL;
    int use_krb5 = 0, use_krb4 = 0;
    int ret;
+   static int last_return = HTTP_UNAUTHORIZED;
 
    /* get the type specified in .htaccess */
    type = ap_auth_type(r);
@@ -1067,6 +1071,9 @@ int kerb_authenticate_user(request_rec *r)
       return HTTP_UNAUTHORIZED;
    }
    auth_type = ap_getword_white(r->pool, &auth_line);
+
+   if (already_succeeded(r))
+      return last_return;
 
    ret = HTTP_UNAUTHORIZED;
 
@@ -1089,6 +1096,7 @@ int kerb_authenticate_user(request_rec *r)
    if (ret == HTTP_UNAUTHORIZED)
       note_kerb_auth_failure(r, conf, use_krb4, use_krb5);
 
+   last_return = ret;
    return ret;
 }
 
