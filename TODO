@@ -22,6 +22,7 @@
 
 - Browser Mutual Auth Support
 	Combined with plugins, use auth user already has.
+        - implement support for the Negotiate authentication method
 
 - Environment Variables
 	KRB5CCNAME, KRBTKFILE
