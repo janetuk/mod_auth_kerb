@@ -1,6 +1,6 @@
-KRB5_ROOT = /usr/heimdal
+include ../makefile.include
 
-CPPFLAGS = -I. -I$(KRB5_ROOT)/include
+CPPFLAGS = -I. -I$(KRB5_ROOT)/include -I$(KRB5_ROOT)/include/gssapi
 CFLAGS = -Wall -g
 
 gen_files = 			\

@@ -33,24 +33,39 @@
 
 /* $Id$ */
 
-#ifndef __DER_LOCL_H__
-#define __DER_LOCL_H__
+#ifndef __PARSE_UNITS_H__
+#define __PARSE_UNITS_H__
 
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif
-#include <assert.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <limits.h>
-#include <ctype.h>
-#include <time.h>
-#include <errno.h>
-/* #include <roken.h> */
+#include <stddef.h>
 
-#include <asn1-common.h>
-#include <asn1_err.h>
-#include <der.h>
+struct units {
+    const char *name;
+    unsigned mult;
+};
 
-#endif /* __DER_LOCL_H__ */
+int
+parse_units (const char *s, const struct units *units,
+	     const char *def_unit);
+
+void
+print_units_table (const struct units *units, FILE *f);
+
+int
+parse_flags (const char *s, const struct units *units,
+	     int orig);
+
+int
+unparse_units (int num, const struct units *units, char *s, size_t len);
+
+int
+unparse_units_approx (int num, const struct units *units, char *s,
+		      size_t len);
+
+int
+unparse_flags (int num, const struct units *units, char *s, size_t len);
+
+void
+print_flags_table (const struct units *units, FILE *f);
+
+#endif /* __PARSE_UNITS_H__ */
