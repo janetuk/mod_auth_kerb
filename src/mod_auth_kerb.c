@@ -595,7 +595,7 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
    if (ret) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r, 
    	         "generating new memory ccache failed: %s",
- 		 krb5_get_err_text(kcontext, ret));
+ 		 krb5_get_err_text(context, ret));
       goto end;
    }
 
