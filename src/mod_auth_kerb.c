@@ -464,30 +464,58 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
    krb5_error_code ret;
    krb5_verify_init_creds_opt opt;
 
+   /* XXX error messages shouldn't be logged here (and in the while() loop in
+    * authenticate_user_krb5pwd() as weell), in order to avoid confusing log
+    * entries when using multiple realms */
+
    memset(&creds, 0, sizeof(creds));
 
    ret = krb5_get_init_creds_password(context, &creds, principal, 
 	 			      (char *)password, krb5_prompter_posix,
 				      NULL, 0, NULL, NULL);
-   if (ret)
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "krb5_get_init_creds_password() failed: %s",
+		 krb5_get_err_text(context, ret));
       return ret;
+   }
 
    ret = krb5_sname_to_principal(context, ap_get_server_name(r), service, 
 	 			 KRB5_NT_SRV_HST, &server);
-   if (ret)
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "krb5_sname_to_principal() failed: %s",
+		 krb5_get_err_text(context, ret));
       goto end;
+   }
 
    krb5_verify_init_creds_opt_init(&opt);
    krb5_verify_init_creds_opt_set_ap_req_nofail(&opt, krb_verify_kdc);
 
    ret = krb5_verify_init_creds(context, &creds, server, keytab, NULL, &opt);
-   if (ret)
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "krb5_verify_init_creds() failed: %s",
+		 krb5_get_err_text(context, ret));
       goto end;
-
+   }
+	         
    if (ccache) {
       ret = krb5_cc_initialize(context, ccache, principal);
-      if (ret == 0)
-	 ret = krb5_cc_store_cred(context, ccache, &creds);
+      if (ret) {
+	 log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	            "krb5_cc_initialize() failed: %s",
+		    krb5_get_err_text(context, ret));
+	 goto end;
+      }
+
+      ret = krb5_cc_store_cred(context, ccache, &creds);
+      if (ret) {
+	 log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	            "krb5_cc_store_cred() failed: %s",
+		    krb5_get_err_text(context, ret));
+	 goto end;
+      }
    }
 
 end:
@@ -688,16 +716,24 @@ int authenticate_user_krb5pwd(request_rec *r,
    realms = conf->krb_auth_realms;
    do {
       if (realms && (code = krb5_set_default_realm(kcontext,
-	          		           ap_getword_white(r->pool, &realms))))
+	          		           ap_getword_white(r->pool, &realms)))){
+	 log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	            "krb5_set_default_realm() failed: %s",
+		    krb5_get_err_text(kcontext, code));
 	 continue;
+      }
 
       if (client) {
 	 krb5_free_principal(kcontext, client);
 	 client = NULL;
       }
       code = krb5_parse_name(kcontext, sent_name, &client);
-      if (code)
+      if (code) {
+	 log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	            "krb5_parse_name() failed: %s",
+		    krb5_get_err_text(kcontext, code));
 	 continue;
+      }
 
       code = verify_krb5_user(r, kcontext, client, ccache, sent_pw, 
 	    		      conf->krb_service_name, 
@@ -719,10 +755,6 @@ int authenticate_user_krb5pwd(request_rec *r,
    memset((char *)sent_pw, 0, strlen(sent_pw));
 
    if (code) {
-      /* XXX log only in the verify_krb5_user() call */
-      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	         "Verifying krb5 password failed: %s",
-		 krb5_get_err_text(kcontext, code));
       if (!conf->krb_authoritative && all_principals_unkown == 1 && code == KRB5KDC_ERR_C_PRINCIPAL_UNKNOWN)
 	 ret = DECLINED;
       else
