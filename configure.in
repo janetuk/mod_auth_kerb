@@ -81,7 +81,7 @@ if test "x$with_krb5" != "xno" ; then
   if test -z "$KRB5_LDFLAGS" -a -n "$krb5_config_command"; then
      TMP_KRB5_LDFLAGS=`$krb5_config_command --libs gssapi 2>/dev/null`
      if test -n "$TMP_KRB5_LDFLAGS"; then
-        LIBS="$LIBS $TMP_KRB5_LDFLAGS"
+        LIBS="$LIBS $TMP_KRB5_LDFLAGS $LIB_resolv"
         AC_CHECK_LIB(krb5, krb5_init_context,
                      [ KRB5_LDFLAGS="$TMP_KRB5_LDFLAGS" ])
         LIBS="$ac_save_LIBS"
