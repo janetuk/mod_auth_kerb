@@ -4,8 +4,9 @@ int kerb_authenticate_user(request_rec *r) {
 	int KerberosV4 = 0;		/* Kerberos V4 check enabled */
 	const char *sent_pw;		/* Password sent by browser */
 	int res;			/* Response holder */
-	const char *auth_line = apr_table_get(r->headers_in,
-					(PROXYREQ_PROXY == r->proxyreq)
+	const char *authtype;		/* AuthType to send back to browser */
+	const char *auth_line = ap_table_get(r->headers_in,
+					(r->proxyreq == STD_PROXY)
 						? "Proxy-Authorization"
 						: "Authorization");
 
@@ -29,46 +30,21 @@ int kerb_authenticate_user(request_rec *r) {
 		return DECLINED;
 	}
 
-	const char *t;
-
-	if (!(t = ap_auth_type(r)) || strcasecmp(t, "Basic"))
-		return DECLINED;
-
 	if (!ap_auth_name(r)) {
-		ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR,
-			0, r, "need AuthName: %s", r->uri);
+		ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, r,
+				"need AuthName: %s", r->uri);
 		return HTTP_INTERNAL_SERVER_ERROR;
 	}
 
 	if (!auth_line) {
-		ap_note_basic_auth_failure(r);
+		ap_table_set(r->err_headers_out, "WWW-Authenticate", "Kerberos");
 		return HTTP_UNAUTHORIZED;
 	}
 
-	if (strcasecmp(ap_getword(r->pool, &auth_line, ' '), "Basic")) {
-		/* Client tried to authenticate using wrong auth scheme */
-        ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, 0, r,
-                      "client used wrong authentication scheme: %s", r->uri);
-        ap_note_basic_auth_failure(r);
-        return HTTP_UNAUTHORIZED;
-    }
-
-    while (*auth_line == ' ' || *auth_line == '\t') {
-        auth_line++;
-    }
-
-    t = ap_pbase64decode(r->pool, auth_line);
-    /* Note that this allocation has to be made from r->connection->pool
-     * because it has the lifetime of the connection.  The other allocations
-     * are temporary and can be tossed away any time.
-     */
-    r->user = ap_getword_nulls (r->pool, &t, ':');
-    r->ap_auth_type = "Basic";
-
-    *pw = t;
-
-    return OK;
-}
+	type = ap_getword_white(r->pool, &auth_line);
+	r->connection->user = ap_getword_nulls(r->pool, &auth_line, ':');
+	r->connection->ap_auth_type = "Kerberos";
+	sent_pw = ap_getword_white(r->pool, &auth_line);
 
 #ifdef KRB5
 	if (KerberosV5) {
