@@ -66,7 +66,7 @@ Heimdal:
   kadmin -p admin@REALM -r REALM ank -r HTTP/servername@REALM
   kadmin -p admin@REALM -r REALM ext -k /etc/httpd/keytab HTTP/servername@REALM
   chown nobody /etc/httpd/keytab
-  chmod 600 /etc/httpd/keytab
+  chmod 400 /etc/httpd/keytab
   
 Windows 2000 Domain Controler
 -----------------------------
@@ -105,7 +105,7 @@ use DES-CBC-MD5 in all cases.
 You need to copy the keytab file to your web server in a secure way to avoid
 revealing the server key(s). Note that the copy needs to be done in binary
 mode to avoid corrupting the file. Make sure that the keytab file is owned by
-the apache user and only readable to this user (i.e. the permissions are 600).
+the apache user and only readable to this user (i.e. the permissions are 400).
 After copying the keytab verify the content using the ktutil tool.
 
 See http://www.grolmsnet.de/kerbtut for more information about using
@@ -154,29 +154,27 @@ Negotiateauth extension (available in 1.7beta and later).
 
 Internet Explorer
 -----------------
-(TBA:
-Configuring Windows Machine to use Unix KDC
-http://www.microsoft.com/windows2000/techinfo/planning/security/kerbsteps.asp
-)
 To make the Negotiate authentication work the web server hostname  must be
 in Internet Explorer "Local Intranet" security zone and the "Windows
 Integrated Authentication" must be enabled in the IE advanced options.
 
+See also a guide from Microsoft describing how to configure Windows Machine to
+use Unix KDC available at
+http://www.microsoft.com/windows2000/techinfo/planning/security/kerbsteps.asp
+
 Mozilla
 -------
-TBD
 First make sure your Mozilla distribution contains the Negotiateauth component
 (libnegotiateauth.so on Unix, negotiateauth.dll on Windows). Generally this is
-included in versions 1.7beta and later on Unix platforms including Mac OSX, maybe
-1.8 and later on Windows.)
+included in versions 1.7beta and later on Unix platforms including Mac OSX,
+maybe 1.8 and later on Windows.)
 
-The web server must be listed in preference network.negotiate-auth.trusted-uris.
-Easiest way to do this is to type about:config in the URL bar and change the setting
-on the resulting settings list. If this preference is not on the list, it probably
-means that your version of Mozilla does not support Negotiate auth.
-
-debugging
-Using with Heimdal
+If you want to find out what happens in the Negotiateauth component use
+following environment variables:
+  NSPR_LOG_MODULES=negotiateauth:5
+  NSPR_LOG_FILE=/tmp/negotiateauth.log
+before starting Mozilla. You will see debugging messages logged in the file
+specified by NSPR_LOG_FILE (/tmp/negotiateauth.log)
 
 6. Access control
 -----------------
