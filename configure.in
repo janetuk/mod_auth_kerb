@@ -51,7 +51,7 @@ if test "x$with_krb5" != "xno" ; then
         # OpenBSD uses Heimdal, so add openbsd-specific configuration 
         # libs for Heimdal 
         KRB5_CPPFLAGS="-I$with_krb5/include"
-        KRB5_LDFLAGS="-L$with_krb5/lib -lkrb5 -lasn1 -ldes -lcrypt"
+        KRB5_LDFLAGS="-L$with_krb5/lib -lgssapi -lkrb5 -lasn1 -ldes -lcrypt"
         krb5_config_command=""
      fi
   fi
