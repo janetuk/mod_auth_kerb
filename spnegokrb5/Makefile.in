@@ -1,8 +1,15 @@
 KRB5_CPPFLAGS = @KRB5_CPPFLAGS@
 KRB5_LDFLAGS = @KRB5_LDFLAGS@
+DO_KRB5 = @DO_KRB5@
 
 CPPFLAGS = -I. -I.. $(KRB5_CPPFLAGS)
 CFLAGS = -Wall -g
+
+ifdef DO_KRB5
+	TARGET=libspnegokrb5.a
+else
+	TARGET=
+endif
 
 gen_files = 			\
 	asn1_MechType.c		\
@@ -26,7 +33,7 @@ spnegokrb5_files =		\
 	decapsulate.c		\
 	external.c
 
-all: libspnegokrb5.a
+all: $(TARGET)
 
 libspnegokrb5.a: $(gen_files:.c=.o) $(asn1_files:.c=.o) $(spnegokrb5_files:.c=.o)
 	ar -rscu libspnegokrb5.a $^
