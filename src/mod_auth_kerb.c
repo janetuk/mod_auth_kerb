@@ -880,11 +880,20 @@ authenticate_user_gss(request_rec *r,
      ap_register_cleanup(r->connection->pool, gss_connection, cleanup_gss_connection, ap_null_cleanup);
   }
 
-  if (conf->krb_5_keytab)
-     /* use really strcat(), since the string passed to putenv() will become
-      * part of the enviroment and shouldn't be free()ed by apache */
-     /* XXX space isn't allocated !!! */
-     putenv(strcat("KRB5_KTNAME=", conf->krb_5_keytab));
+  if (conf->krb_5_keytab) {
+     char *ktname;
+     /* we don't use the ap_* calls here, since the string passed to putenv()
+      * will become part of the enviroment and shouldn't be free()ed by apache
+      */
+     ktname = malloc(strlen("KRB5_KTNAME=") + strlen(conf->krb_5_keytab) + 1);
+     if (ktname == NULL) {
+	log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "malloc() failed: not enough memory");
+	ret = HTTP_INTERNAL_SERVER_ERROR;
+	goto end;
+     }
+     sprintf(ktname, "KRB5_KTNAME=%s", conf->krb_5_keytab);
+     putenv(ktname);
+  }
 
   if (gss_connection->server_creds == GSS_C_NO_CREDENTIAL) {
      ret = get_gss_creds(r, conf, &gss_connection->server_creds);
@@ -1013,7 +1022,7 @@ note_kerb_auth_failure(request_rec *r, const kerb_auth_config *conf,
    /* XXX should the WWW-Authenticate header be cleared first? */
 #ifdef KRB5
    if (use_krb5 && conf->krb_method_gssapi)
-      ap_table_add(r->err_headers_out, "WWW-Authenticate", "Negotiate ");
+      ap_table_add(r->err_headers_out, "WWW-Authenticate", "Negotiate");
    if (use_krb5 && conf->krb_method_k5pass) {
       ap_table_add(r->err_headers_out, "WWW-Authenticate",
                    ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
