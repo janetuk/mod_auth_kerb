@@ -11,7 +11,7 @@
 # Settings for Kerberos v5 enviroment
 # 
 DEFS += -DKRB5
-KRB5_ROOT = /usr/heimdal-0.6
+KRB5_ROOT = /usr/local/krb5
 
 # Uncomment following line if you're using the Heimdal implementation of krb5
 #DEFS += -DHEIMDAL
