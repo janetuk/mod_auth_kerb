@@ -1,3 +1,9 @@
+2002-09-05  Daniel Henninger  <daniel@ncsu.edu>
+
+	* apache1/module.c:
+	* apache2/module.c:
+	Prettied up module config and documented it a tad better.
+
 2002-09-02  Daniel Henninger  <daniel@ncsu.edu>
 
 	* apache1/auth_cmds.c:
