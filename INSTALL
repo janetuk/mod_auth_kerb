@@ -182,6 +182,10 @@ following environment variables:
 before starting Mozilla. You will see debugging messages logged in the file
 specified by NSPR_LOG_FILE (/tmp/negotiateauth.log)
 
+KDE Konqueror
+-------------
+http://www.grolmsnet.de/kerbtut/konqueror.html
+
 6. Access control
 -----------------
 If you want only particular users to be able to access the secured area, you
