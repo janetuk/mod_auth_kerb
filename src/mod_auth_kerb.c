@@ -187,6 +187,35 @@ static const command_rec kerb_auth_cmds[] = {
    { NULL }
 };
 
+#if defined(KRB5) && !defined(HEIMDAL)
+/* Needed to work around problems with replay caches */
+#include "mit-internals.h"
+
+/* This is our replacement krb5_rc_store function */
+static krb5_error_code
+mod_auth_kerb_rc_store(krb5_context context, krb5_rcache rcache,
+                        krb5_donot_replay *donot_replay)
+{
+   return 0;
+}
+
+/* And this is the operations vector for our replay cache */
+const krb5_rc_ops mod_auth_kerb_rc_ops = {
+  0,
+  "dfl",
+  krb5_rc_dfl_init,
+  krb5_rc_dfl_recover,
+  krb5_rc_dfl_destroy,
+  krb5_rc_dfl_close,
+  mod_auth_kerb_rc_store,
+  krb5_rc_dfl_expunge,
+  krb5_rc_dfl_get_span,
+  krb5_rc_dfl_get_name,
+  krb5_rc_dfl_resolve
+};
+#endif
+
+
 /*************************************************************************** 
  Auth Configuration Initialization
  ***************************************************************************/
@@ -420,6 +449,82 @@ end:
 /*************************************************************************** 
  Username/Password Validation for Krb5
  ***************************************************************************/
+static krb5_error_code
+verify_krb5_init_creds(krb5_context context, krb5_creds *creds,
+                       krb5_principal ap_req_server, krb5_keytab ap_req_keytab)
+{
+   krb5_error_code ret;
+   krb5_data req;
+   krb5_ccache local_ccache = NULL;
+   krb5_creds *new_creds = NULL;
+   krb5_auth_context auth_context = NULL;
+   krb5_keytab keytab = NULL;
+
+   krb5_data_zero (&req);
+
+   if (ap_req_keytab == NULL) {
+      ret = krb5_kt_default (context, &keytab);
+      if (ret)
+	 return ret;
+   } else
+      keytab = ap_req_keytab;
+
+   ret = krb5_cc_resolve(context, "MEMORY:", &local_ccache);
+   if (ret)
+      return ret;
+
+   ret = krb5_cc_initialize(context, local_ccache, creds->client);
+   if (ret)
+      goto end;
+
+   ret = krb5_cc_store_cred (context, local_ccache, creds);
+   if (ret)
+      goto end;
+
+   if (!krb5_principal_compare (context, ap_req_server, creds->server)) {
+      krb5_creds match_cred;
+
+      memset (&match_cred, 0, sizeof(match_cred));
+
+      match_cred.client = creds->client;
+      match_cred.server = ap_req_server;
+
+      ret = krb5_get_credentials (context, 0, local_ccache, 
+	                          &match_cred, &new_creds);
+      if (ret)
+	 goto end;
+      creds = new_creds;
+   }
+
+   ret = krb5_mk_req_extended (context, &auth_context, 0, NULL, creds, &req);
+   if (ret)
+      goto end;
+
+   krb5_auth_con_free (context, auth_context);
+   ret = krb5_auth_con_init(context, &auth_context);
+   if (ret)
+      goto end;
+   krb5_auth_con_setflags(context, auth_context, KRB5_AUTH_CONTEXT_DO_SEQUENCE);
+
+   auth_context = NULL;
+
+   ret = krb5_rd_req (context, &auth_context, &req, ap_req_server,
+		      keytab, 0, NULL);
+
+end:
+   krb5_free_data_contents(context, &req);
+   if (auth_context)
+      krb5_auth_con_free (context, auth_context);
+   if (new_creds)
+      krb5_free_creds (context, new_creds);
+   if (ap_req_keytab == NULL && keytab)
+      krb5_kt_close (context, keytab);
+   if (local_ccache)
+      krb5_cc_destroy (context, local_ccache);
+
+   return ret;
+}
+
 /* Inspired by krb5_verify_user from Heimdal */
 static krb5_error_code
 verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
@@ -429,7 +534,6 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
    krb5_creds creds;
    krb5_principal server = NULL;
    krb5_error_code ret;
-   krb5_verify_init_creds_opt opt;
 
    /* XXX error messages shouldn't be logged here (and in the while() loop in
     * authenticate_user_krb5pwd() as weell), in order to avoid confusing log
@@ -468,17 +572,14 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
    }
    */
 
-   krb5_verify_init_creds_opt_init(&opt);
-   krb5_verify_init_creds_opt_set_ap_req_nofail(&opt, krb_verify_kdc);
-
-   ret = krb5_verify_init_creds(context, &creds, server, keytab, NULL, &opt);
-   if (ret) {
-      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	         "krb5_verify_init_creds() failed: %s",
-		 krb5_get_err_text(context, ret));
-      goto end;
+   if (krb_verify_kdc &&
+       (ret = verify_krb5_init_creds(context, &creds, server, keytab))) {
+       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	          "failed to verify krb5 credentials: %s",
+		  krb5_get_err_text(context, ret));
+       goto end;
    }
-	         
+
    if (ccache) {
       ret = krb5_cc_initialize(context, ccache, principal);
       if (ret) {
@@ -501,6 +602,7 @@ end:
    krb5_free_cred_contents(context, &creds);
    if (server)
       krb5_free_principal(context, server);
+
    return ret;
 }
 
@@ -870,13 +972,6 @@ get_gss_creds(request_rec *r,
    gss_name_t server_name = GSS_C_NO_NAME;
    char buf[1024];
 
-#if 0
-   /* Don't specify service name. This makes MIT 1.3 not to use replay caches,
-    * which causes large problems with the Microsoft krb5 implementation. MS
-    * obviously uses a format of the krb5 authenticator that is considered by
-    * the MIT as replay (Two valid MS authenticators may contain the same time
-    * and utime fields and only differ in the sequential numbers).
-    */
    snprintf(buf, sizeof(buf), "%s@%s", conf->krb_service_name,
 	 ap_get_server_name(r));
 
@@ -892,7 +987,6 @@ get_gss_creds(request_rec *r,
 		 "gss_import_name() failed"));
       return HTTP_INTERNAL_SERVER_ERROR;
    }
-#endif
    
    major_status = gss_acquire_cred(&minor_status, server_name, GSS_C_INDEFINITE,
 			           GSS_C_NO_OID_SET, GSS_C_ACCEPT,
@@ -904,6 +998,26 @@ get_gss_creds(request_rec *r,
 		 		     "gss_acquire_cred() failed"));
       return HTTP_INTERNAL_SERVER_ERROR;
    }
+
+#ifndef HEIMDAL
+   /*
+    * With MIT Kerberos 5 1.3.x the gss_cred_id_t is the same as
+    * krb5_gss_cred_id_t and krb5_gss_cred_id_rec contains a pointer to
+    * the replay cache.
+    * This allows us to override the replay cache function vector with
+    * our own one.
+    * Note that this is a dirty hack to get things working and there may
+    * well be unknown side-effects.
+    */
+   if (memcmp(((krb5_gss_cred_id_t) *server_creds)->rcache->ops->type, "dfl", 3) == 0)
+      /* Override the rcache operations */
+      ((krb5_gss_cred_id_t) *server_creds)->rcache->ops = &mod_auth_kerb_rc_ops;
+#if 0
+   else
+      /* rcache did not point to default rcache structure, return error */
+      return HTTP_INTERNAL_SERVER_ERROR;
+#endif
+#endif
    
    return 0;
 }
