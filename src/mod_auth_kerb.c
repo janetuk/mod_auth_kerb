@@ -143,12 +143,12 @@ krb5_save_realms(cmd_parms *cmd, kerb_auth_config *sec, char *arg);
 #define command(name, func, var, type, usage)           \
   AP_INIT_ ## type (name, func,                         \
         (void*)APR_XtOffsetOf(kerb_auth_config, var),   \
-        OR_AUTHCFG, usage)
+        OR_AUTHCFG | RSRC_CONF, usage)
 #else
 #define command(name, func, var, type, usage) 		\
   { name, func, 					\
     (void*)XtOffsetOf(kerb_auth_config, var), 		\
-    OR_AUTHCFG, type, usage }
+    OR_AUTHCFG | RSRC_CONF, type, usage }
 #endif
 
 static const command_rec kerb_auth_cmds[] = {
