@@ -1,7 +1,7 @@
 # Process this file with autoconf to produce a configure script.
 AC_REVISION($Revision$)
 AC_PREREQ(2.53)
-AC_INIT(mod_auth_kerb, 0.5-rc2, kouril@users.sourceforge.net)
+AC_INIT(mod_auth_kerb, 0.5-rc2, modauthkerb-developers@lists.sourceforge.net)
 AC_CONFIG_SRCDIR([src/mod_auth_kerb.c])
 AC_CONFIG_HEADER([config.h])
 
@@ -168,7 +168,13 @@ if test "x$with_apache" != "x"; then
      AC_MSG_ERROR([failed to find apache files in $with_apache])
   fi
   APXS="$with_apache/bin/apxs"
+  if test ! -x $APXS; then
+     APXS="$with_apache/sbin/apxs"
+  fi
   HTTPD="$with_apache/bin/httpd"
+  if test ! -x $HTTPD; then
+     HTTPD"$with_apache/sbin/httpd"
+  fi
 fi
 
 apache_v1_3=`$HTTPD -v | grep "^Server version: Apache/1.3."`
