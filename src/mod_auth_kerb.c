@@ -797,7 +797,8 @@ get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 				     GSS_C_NULL_OID,
 				     &msg_ctx,
 				     &status_string);
-      err_msg = ap_pstrcat(p, err_msg, ": ", (char*) status_string.value, NULL);
+      err_msg = ap_pstrcat(p, err_msg,
+	                   " (", (char*) status_string.value, ")", NULL);
       gss_release_buffer(&min_stat, &status_string);
    } while (!GSS_ERROR(maj_stat) && msg_ctx != 0);
 
