@@ -817,6 +817,7 @@ int authenticate_user_krb5pwd(request_rec *r,
    const char      *sent_pw = NULL; 
    const char      *sent_name = NULL;
    const char      *realms = NULL;
+   const char      *realm = NULL;
    krb5_context    kcontext = NULL;
    krb5_error_code code;
    krb5_principal  client = NULL;
@@ -856,19 +857,16 @@ int authenticate_user_krb5pwd(request_rec *r,
    all_principals_unkown = 1;
    realms = conf->krb_auth_realms;
    do {
-      if (realms && (code = krb5_set_default_realm(kcontext,
-	          		           ap_getword_white(r->pool, &realms)))){
-	 log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	            "krb5_set_default_realm() failed: %s",
-		    krb5_get_err_text(kcontext, code));
-	 continue;
-      }
+      name = sent_name;
+      if (realms && (realm = ap_getword_white(r->pool, &realms)))
+	 name = ap_psprintf(r->pool, "%s@%s", sent_name, realm);
 
       if (client) {
 	 krb5_free_principal(kcontext, client);
 	 client = NULL;
       }
-      code = krb5_parse_name(kcontext, sent_name, &client);
+
+      code = krb5_parse_name(kcontext, name, &client);
       if (code) {
 	 log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	            "krb5_parse_name() failed: %s",
