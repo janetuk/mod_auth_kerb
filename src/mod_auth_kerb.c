@@ -126,6 +126,10 @@ typedef struct {
 #endif
 } kerb_auth_config;
 
+static void
+set_kerb_auth_headers(request_rec *r, const kerb_auth_config *conf,
+                      int use_krb4, int use_krb5pwd, char *negotiate_ret_value);
+
 static const char*
 krb5_save_realms(cmd_parms *cmd, kerb_auth_config *sec, char *arg);
 
@@ -189,8 +193,6 @@ typedef struct {
 } gss_connection_t;
 
 static gss_connection_t *gss_connection = NULL;
-
-static const char *EMPTY_STRING = "\0";
 #endif
 
 
@@ -963,7 +965,7 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
   OM_uint32 (*accept_sec_token)();
   gss_OID_desc spnego_oid;
 
-  *negotiate_ret_value = (char *)EMPTY_STRING;
+  *negotiate_ret_value = "\0";
 
   spnego_oid.length = 6;
   spnego_oid.elements = (void *)"\x2b\x06\x01\x05\x05\x02";
@@ -1086,6 +1088,9 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
   if (conf->krb_save_credentials && delegated_cred != GSS_C_NO_CREDENTIAL)
      store_gss_creds(r, conf, (char *)output_token.value, delegated_cred);
 
+  if (*negotiate_ret_value)
+     set_kerb_auth_headers(r, conf, 0, 0, *negotiate_ret_value);
+
   gss_release_buffer(&minor_status, &output_token);
 
   ret = OK;
@@ -1119,8 +1124,8 @@ already_succeeded(request_rec *r)
 }
 
 static void
-note_kerb_auth_failure(request_rec *r, const kerb_auth_config *conf,
-      		       int use_krb4, int use_krb5, char *negotiate_ret_value)
+set_kerb_auth_headers(request_rec *r, const kerb_auth_config *conf,
+      		      int use_krb4, int use_krb5pwd, char *negotiate_ret_value)
 {
    const char *auth_name = NULL;
    int set_basic = 0;
@@ -1133,12 +1138,12 @@ note_kerb_auth_failure(request_rec *r, const kerb_auth_config *conf,
 
    /* XXX should the WWW-Authenticate header be cleared first? */
 #ifdef KRB5
-   if (use_krb5 && conf->krb_method_gssapi && negotiate_ret_value != NULL) {
+   if (negotiate_ret_value != NULL && conf->krb_method_gssapi) {
       negoauth_param = (*negotiate_ret_value == '\0') ? "Negotiate" :
 	          ap_pstrcat(r->pool, "Negotiate ", negotiate_ret_value, NULL);
       ap_table_add(r->err_headers_out, header_name, negoauth_param);
    }
-   if (use_krb5 && conf->krb_method_k5pass) {
+   if (use_krb5pwd && conf->krb_method_k5pass) {
       ap_table_add(r->err_headers_out, header_name,
 		   ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
       set_basic = 1;
@@ -1163,7 +1168,7 @@ int kerb_authenticate_user(request_rec *r)
    int use_krb5 = 0, use_krb4 = 0;
    int ret;
    static int last_return = HTTP_UNAUTHORIZED;
-   char *negotiate_ret_value;
+   char *negotiate_ret_value = NULL;
 
    /* get the type specified in .htaccess */
    type = ap_auth_type(r);
@@ -1182,7 +1187,8 @@ int kerb_authenticate_user(request_rec *r)
    if (!auth_line) {
        auth_line = MK_TABLE_GET(r->headers_in, "Proxy-Authorization");
        if (!auth_line) {
-               note_kerb_auth_failure(r, conf, use_krb4, use_krb5, "\0");
+               set_kerb_auth_headers(r, conf, use_krb4, use_krb5,
+		                     (use_krb5) ? "\0" : NULL);
                return HTTP_UNAUTHORIZED;
        }
    }
@@ -1210,7 +1216,7 @@ int kerb_authenticate_user(request_rec *r)
 #endif
 
    if (ret == HTTP_UNAUTHORIZED)
-      note_kerb_auth_failure(r, conf, use_krb4, use_krb5, negotiate_ret_value);
+      set_kerb_auth_headers(r, conf, use_krb4, use_krb5, negotiate_ret_value);
 
    last_return = ret;
    return ret;
