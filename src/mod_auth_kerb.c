@@ -187,16 +187,6 @@ static const command_rec kerb_auth_cmds[] = {
    { NULL }
 };
 
-#ifdef KRB5
-typedef struct {
-   gss_ctx_id_t context;
-   gss_cred_id_t server_creds;
-} gss_connection_t;
-
-static gss_connection_t *gss_connection = NULL;
-#endif
-
-
 /*************************************************************************** 
  Auth Configuration Initialization
  ***************************************************************************/
@@ -465,6 +455,7 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
 		 krb5_get_err_text(context, ret));
       goto end;
    }
+   /* XXX log_debug: lookig for <server_princ> in keytab */
 
    /* XXX
    {
@@ -818,25 +809,6 @@ get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 }
 
 static int
-cleanup_gss_connection(void *data)
-{
-   OM_uint32 minor_status;
-   gss_connection_t *gss_conn = (gss_connection_t *)data;
-
-   if (data == NULL)
-      return OK;
-   if (gss_conn->context != GSS_C_NO_CONTEXT)
-      gss_delete_sec_context(&minor_status, &gss_conn->context,
-	                     GSS_C_NO_BUFFER);
-   if (gss_conn->server_creds != GSS_C_NO_CREDENTIAL)
-      gss_release_cred(&minor_status, &gss_conn->server_creds);
-
-   gss_connection = NULL;
-
-   return OK;
-}
-
-static int
 store_gss_creds(request_rec *r, kerb_auth_config *conf, char *princ_name,
                 gss_cred_id_t delegated_cred)
 {
@@ -978,23 +950,13 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
   gss_cred_id_t delegated_cred = GSS_C_NO_CREDENTIAL;
   OM_uint32 (*accept_sec_token)();
   gss_OID_desc spnego_oid;
+  gss_ctx_id_t context = GSS_C_NO_CONTEXT;
+  gss_cred_id_t server_creds = GSS_C_NO_CREDENTIAL;
 
   *negotiate_ret_value = "\0";
 
   spnego_oid.length = 6;
   spnego_oid.elements = (void *)"\x2b\x06\x01\x05\x05\x02";
-
-  if (gss_connection == NULL) {
-     gss_connection = ap_pcalloc(r->connection->pool, sizeof(*gss_connection));
-     if (gss_connection == NULL) {
-	log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	           "ap_pcalloc() failed (not enough memory)");
-	ret = HTTP_INTERNAL_SERVER_ERROR;
-	goto end;
-     }
-     memset(gss_connection, 0, sizeof(*gss_connection));
-     ap_register_cleanup(r->connection->pool, gss_connection, cleanup_gss_connection, ap_null_cleanup);
-  }
 
   if (conf->krb_5_keytab) {
      char *ktname;
@@ -1011,11 +973,9 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
      putenv(ktname);
   }
 
-  if (gss_connection->server_creds == GSS_C_NO_CREDENTIAL) {
-     ret = get_gss_creds(r, conf, &gss_connection->server_creds);
-     if (ret)
-	goto end;
-  }
+  ret = get_gss_creds(r, conf, &server_creds);
+  if (ret)
+     goto end;
 
   /* ap_getword() shifts parameter */
   auth_param = ap_getword_white(r->pool, &auth_line);
@@ -1040,8 +1000,8 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
      			gss_accept_sec_context_spnego : gss_accept_sec_context;
 
   major_status = accept_sec_token(&minor_status,
-				  &gss_connection->context,
-				  gss_connection->server_creds,
+				  &context,
+				  server_creds,
 				  &input_token,
 				  GSS_C_NO_CHANNEL_BINDINGS,
 				  &client_name,
@@ -1079,12 +1039,15 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
      goto end;
   }
 
+#if 0
+  /* This is a _Kerberos_ module so multiple authentication rounds aren't
+   * supported. If we wanted a generic GSS authentication we would have to do
+   * some magic with exporting context etc. */
   if (major_status & GSS_S_CONTINUE_NEEDED) {
-     /* Some GSSAPI mechanism (eg GSI from Globus) may require multiple 
-      * iterations to establish authentication */
      ret = HTTP_UNAUTHORIZED;
      goto end;
   }
+#endif
 
   major_status = gss_display_name(&minor_status, client_name, &output_token, NULL);
   gss_release_name(&minor_status, &client_name); 
@@ -1119,8 +1082,11 @@ end:
   if (client_name != GSS_C_NO_NAME)
      gss_release_name(&minor_status, &client_name);
 
-  if (! major_status & GSS_S_CONTINUE_NEEDED)
-     cleanup_gss_connection(gss_connection);
+  if (server_creds != GSS_C_NO_CREDENTIAL)
+     gss_release_cred(&minor_status, &server_creds);
+
+  if (context != GSS_C_NO_CONTEXT)
+     gss_delete_sec_context(&minor_status, &context, GSS_C_NO_BUFFER);
 
   return ret;
 }
@@ -1231,6 +1197,8 @@ int kerb_authenticate_user(request_rec *r)
 
    if (ret == HTTP_UNAUTHORIZED)
       set_kerb_auth_headers(r, conf, use_krb4, use_krb5, negotiate_ret_value);
+
+   /* XXX log_debug: if ret==OK, log(user XY authenticated) */
 
    last_return = ret;
    return ret;
