@@ -1,0 +1,346 @@
+dnl ####################
+dnl ## Initialization ##
+dnl ####################
+AC_INIT(README)
+
+
+dnl ####################
+dnl ## Config Options ##
+dnl ####################
+AC_ARG_WITH(api,
+[  --with-api=API                      api to use (apache1, apache2)],
+[
+	case $withval in
+		'apache1')
+			ac_api=apache1
+			;;
+		'apache2')
+			ac_api=apache2
+			;;
+		*)
+			AC_ERROR(You can only specify apache1 or apache2.)
+			;;
+	esac
+]
+)
+
+AC_ARG_WITH(apxs,
+[  --with-apxs=PATH                    path to apxs],
+[
+	if test -e $withval ; then
+		APXS="$withval"
+	else
+		AC_ERROR(Specified apxs path does not exist.)
+	fi
+]
+)
+
+AC_ARG_WITH(static,
+[  --with-static                       module is to be statically linked],
+[
+	ac_static="yes"
+]
+)
+
+AC_ARG_WITH(krb5,
+[  --with-krb5=DIR                     path to Kerberos 5 install],
+[
+	if test -d $withval ; then
+		CFLAGS="$CFLAGS -I$withval/include"
+		CPPFLAGS="$CPPFLAGS -I$withval/include"
+		LDFLAGS="$LDFLAGS -L$withval/lib"
+
+		case "$host" in
+			*-solaris*)
+				LDFLAGS="$LDFLAGS -R$withval/lib"
+				;;
+		esac
+	else
+		AC_ERROR(Specified Kerberos 5 directory doesn't exist.)
+	fi
+]
+)
+
+AC_ARG_WITH(krb5-include,
+[    --with-krb5-include=DIR           include path to Kerberos 5 install],
+[
+	if test -d $withval ; then
+		CFLAGS="$CFLAGS -I$withval"
+		CPPFLAGS="$CPPFLAGS -I$withval"
+	else
+		AC_ERROR(Specified Kerberos 5 directory doesn't exist.)
+	fi
+]
+)
+
+AC_ARG_WITH(krb5-lib,
+[    --with-krb5-lib=DIR               lib path to Kerberos 5 install],
+[
+	if test -d $withval ; then
+		LDFLAGS="$LDFLAGS -L$withval"
+
+		case "$host" in
+			*-solaris*)
+				LDFLAGS="$LDFLAGS -R$withval"
+				;;
+		esac
+	else
+		AC_ERROR(Specified Kerberos 5 directory doesn't exist.)
+	fi
+]
+)
+
+AC_ARG_ENABLE(krb5,
+[  --disable-krb5                      force disabling of krb5 support],
+[
+	if test "$enable_krb5" = "no" ; then
+		ac_krb5_disable="yes"
+	fi
+],
+)
+
+AC_ARG_WITH(krb4,
+[  --with-krb4=DIR                     path to Kerberos 4 install],
+[
+	if test -d $withval ; then
+		CFLAGS="$CFLAGS -I$withval/include"
+		CPPFLAGS="$CPPFLAGS -I$withval/include"
+		LDFLAGS="$LDFLAGS -L$withval/lib"
+
+		case "$host" in
+			*-solaris*)
+				LDFLAGS="$LDFLAGS -R$withval/lib"
+				;;
+		esac
+	else
+		AC_ERROR(Specified Kerberos 4 directory doesn't exist.)
+	fi
+]
+)
+
+AC_ARG_WITH(krb4-include,
+[    --with-krb4-include=DIR           include path to Kerberos 4 install],
+[
+	if test -d $withval ; then
+		CFLAGS="$CFLAGS -I$withval"
+		CPPFLAGS="$CPPFLAGS -I$withval"
+	else
+		AC_ERROR(Specified Kerberos 4 directory doesn't exist.)
+	fi
+]
+)
+
+AC_ARG_WITH(krb4-lib,
+[    --with-krb4-lib=DIR               lib path to Kerberos 4 install],
+[
+	if test -d $withval ; then
+		LDFLAGS="$LDFLAGS -L$withval"
+
+		case "$host" in
+			*-solaris*)
+				LDFLAGS="$LDFLAGS -R$withval"
+				;;
+		esac
+	else
+		AC_ERROR(Specified Kerberos 4 directory doesn't exist.)
+	fi
+]
+)
+
+AC_ARG_ENABLE(krb4,
+[  --disable-krb4                      force disabling of krb4 support],
+[
+	if test "$enable_krb4" = "no" ; then
+		ac_krb4_disable="yes"
+	fi
+],
+)
+
+
+dnl ####################
+dnl ## Program Checks ##
+dnl ####################
+AC_PROG_CC
+if test -z "$ac_static" ; then
+	AC_PATH_PROG(APXS, apxs)
+	if test -z "$APXS" ; then
+		echo "No apxs found.  Defaulting to static module generation."
+		ac_static="yes"
+	fi
+fi
+
+
+dnl ###############
+dnl ## Libraries ##
+dnl ###############
+if test -z "$ac_krb5_disable" ; then
+	AC_CHECK_LIB(krb5, krb5_get_in_tkt_with_password, [
+		ac_krb5="yes"
+		ac_krbdefs="-DKRB5"
+		ac_krblibs="-lkrb5"
+		AC_CHECK_LIB(k5crypto, krb5_string_to_key, [
+			ac_krblibs="$ac_krblibs -lk5crypto"
+		], [
+			AC_CHECK_LIB(crypto, krb5_string_to_key, [
+				ac_krblibs="$ac_krblibs -lcrypto"
+			], [
+				ac_krblibs=""
+			], "-lcom_err")
+		], "-lcom_err")
+		ac_krblibs="$ac_krblibs -lcom_err"
+		
+		if test -z "$ac_krb4_disable" ; then
+			if test -n "$ac_krblibs" ; then
+				AC_CHECK_LIB(krb4, krb_get_pw_in_tkt, [
+					ac_krb4="yes"
+					ac_krbdefs="-DKRB4"
+					ac_krblibs="-lkrb4 $ac_krblibs"
+				],, $ac_krblibs)
+			fi
+		fi
+	],, "-lcom_err")
+fi
+
+if test -z "$ac_krb4_disable" -a -z "$ac_krb4" ; then
+	AC_CHECK_LIB(krb, krb_get_pw_in_tkt, [
+		ac_krb4="yes"
+		ac_krbdefs="-DKRB4"
+		ac_krblibs="$ac_krblibs -lkrb -lcom_err"
+	],, "-lcom_err")
+fi
+
+if test -z "$ac_krb4" -a -z "$ac_krb5" ; then
+	AC_ERROR(Neither Kerberos 5 nor 4 support available.)
+fi
+
+
+dnl #############
+dnl ## Headers ##
+dnl #############
+if test -n "$ac_krb5" ; then
+	AC_CHECK_HEADERS(krb5.h, [
+		ac_foundkrb5="yes"
+		break
+	])
+
+	if test -z "$ac_foundkrb5" ; then
+		AC_MSG_RESULT(krb5.h not found... removing krb5 support.)
+		ac_krb5=""
+	fi
+fi
+
+if test -n "$ac_krb4" ; then
+	AC_CHECK_HEADERS(kerberosIV/krb.h krb.h, [
+		ac_foundkrb4="yes"
+		break
+	])
+
+	if test -z "$ac_foundkrb4" ; then
+		AC_MSG_RESULT(krb.h not found... removing krb4 support.)
+		ac_krb4=""
+	fi
+fi
+
+if test -z "$ac_krb4" -a -z "$ac_krb5" ; then
+	AC_ERROR(Neither Kerberos 5 nor 4 support available.)
+fi
+
+
+dnl ##############
+dnl ## Typedefs ##
+dnl ##############
+
+
+dnl ################
+dnl ## Structures ##
+dnl ################
+
+
+dnl ##############################
+dnl ## Compiler Characteristics ##
+dnl ##############################
+if test -z "$ac_api" ; then
+	if test -n "`$APXS -q bindir 2> /dev/null`" ; then
+		echo "API autodetected to be Apache 2.*"
+		ac_api=apache2
+	else
+		echo "API autodetected to be Apache 1.*"
+		ac_api=apache1
+	fi
+fi
+
+
+dnl #######################
+dnl ## Library Functions ##
+dnl #######################
+
+
+dnl #####################
+dnl ## System Services ##
+dnl #####################
+
+
+dnl ##########################
+dnl ## Last Minute Settings ##
+dnl ##########################
+LIBS="$LIBS $ac_krblibs"
+DEFS="$DEFS $ac_krbdefs"
+GENHEADERS=""
+GENSOURCES=""
+case $ac_api in
+	'apache1')
+		GENHEADERS="$GENHEADERS apache1/api_inc.h"
+		GENSOURCES="$GENSOURCES apache1/auth_user.c"
+		GENSOURCES="$GENSOURCES apache1/module.c"
+		;;
+	'apache2')
+		GENHEADERS="$GENHEADERS apache2/api_inc.h"
+		GENSOURCES="$GENSOURCES apache2/auth_user.c"
+		GENSOURCES="$GENSOURCES apache2/hooks.c"
+		GENSOURCES="$GENSOURCES apache2/module.c"
+		;;
+esac
+
+if test "$ac_krb5" = "yes" ; then
+	GENHEADERS="$GENHEADERS krb5/krb5_inc.h"
+	GENSOURCES="krb5/validate.c $GENSOURCES"
+fi
+
+if test "$ac_krb4" = "yes" ; then
+	GENHEADERS="$GENHEADERS krb4/krb4_inc.h"
+	GENSOURCES="krb4/validate.c $GENSOURCES"
+fi
+
+
+dnl #########################
+dnl ## Create Output Files ##
+dnl #########################
+echo "Generating mod_auth_kerb.c ..."
+echo "/* Automatically generated by configure. */" > mod_auth_kerb.c
+if test "$ac_krb5" = "yes" ; then
+	echo "#define KRB5 1" >> mod_auth_kerb.c
+fi
+if test "$ac_krb4" = "yes" ; then
+	echo "#define KRB4 1" >> mod_auth_kerb.c
+fi
+for f in $GENHEADERS $GENSOURCES ; do
+	echo "  Adding $f"
+	echo "" >> mod_auth_kerb.c
+	cat $f >> mod_auth_kerb.c
+done
+
+if test "$ac_static" = "yes" ; then
+	echo ""
+	echo ""
+	echo "This module is to be built statically into Apache.  You will need"
+	echo "to place it into the appropriate location in the source tree and"
+	echo "compile Apache accordingly.  You can look at the online docs at"
+	echo "http://modauthkerb.sourceforge.net/ or README.static for more"
+	echo "information."
+	echo ""
+	echo ""
+else
+	AC_OUTPUT(Makefile)
+fi
+
+exit 0
