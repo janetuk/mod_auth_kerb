@@ -1298,9 +1298,9 @@ int kerb_authenticate_user(request_rec *r)
    if (type && strcasecmp(type, "Kerberos") == 0)
       use_krb5 = use_krb4 = 1;
    else if(type && strcasecmp(type, "KerberosV5") == 0)
-      use_krb4 = 0;
+      use_krb5 = 1;
    else if(type && strcasecmp(type, "KerberosV4") == 0)
-      use_krb5 = 0;
+      use_krb4 = 1;
    else
       return DECLINED;
 
