@@ -82,11 +82,9 @@
 
 #ifdef KRB5
 #include <krb5.h>
-#ifdef HEIMDAL
-#  include <gssapi.h>
-#else
-#  include <gssapi/gssapi.h>
-#  include <gssapi/gssapi_generic.h>
+#include <gssapi.h>
+#ifndef HEIMDAL
+#  include <gssapi_generic.h>
 #  define GSS_C_NT_USER_NAME gss_nt_user_name
 #  define GSS_C_NT_HOSTBASED_SERVICE gss_nt_service_name
 #  define krb5_get_err_text(context,code) error_message(code)
