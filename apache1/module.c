@@ -9,7 +9,7 @@ module MODULE_VAR_EXPORT kerb_auth_module = {
 	NULL,				/* [ 9] content handlers              */
 	NULL,				/* [ 2] URI-to-filename translation   */
 	kerb_authenticate_user,		/* [ 5] check/validate user_id        */
-	NULL,				/* [ 6] check user_id is valid *here* */
+	kerb_check_user_access,		/* [ 6] check user_id is valid *here* */
 	NULL,				/* [ 4] check access by host address  */
 	NULL,				/* [ 7] MIME type checker/setter      */
 	NULL,				/* [ 8] fixups                        */

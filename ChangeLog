@@ -1,3 +1,8 @@
+2003-05-29  Daniel Henninger  <jadestorm@users.sourceforge.net>
+
+	* src/mod_auth_kerb.c:
+	Combined current work back into a single file.
+
 2002-09-06  Daniel Henninger  <daniel@ncsu.edu>
 
 	* apache1/auth_cmds.c:
