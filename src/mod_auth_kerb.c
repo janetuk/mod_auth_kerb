@@ -491,12 +491,15 @@ int authenticate_user_krb5pwd(request_rec *r,
 			      const char *auth_line)
 {
    const char      *sent_pw = NULL; 
+   const char      *sent_name = NULL;
    const char      *realms = NULL;
+   const char	   *service_name = NULL;
    krb5_context    kcontext = NULL;
    krb5_error_code code;
    krb5_principal  client = NULL;
    krb5_ccache     ccache = NULL;
    int             ret;
+   char *name = NULL;
 
    code = krb5_init_context(&kcontext);
    if (code) {
@@ -506,11 +509,9 @@ int authenticate_user_krb5pwd(request_rec *r,
    }
 
    sent_pw = ap_pbase64decode(r->pool, auth_line);
-   MK_USER = ap_getword (r->pool, &sent_pw, ':');
-   MK_AUTH_TYPE = "Basic";
-
+   sent_name = ap_getword (r->pool, &sent_pw, ':');
    /* do not allow user to override realm setting of server */
-   if (strchr(MK_USER, '@')) {
+   if (strchr(sent_name, '@')) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
   		 "specifying realm in user name is prohibited");
       ret = HTTP_UNAUTHORIZED;
@@ -534,20 +535,30 @@ int authenticate_user_krb5pwd(request_rec *r,
       /* setenv("KRB5_KTNAME", conf->krb_5_keytab, 1); */
       kcontext->default_keytab = conf->krb_5_keytab;
 
+   if (conf->service_name) {
+      char *p;
+      service_name = ap_pstrdup(r->pool, conf->service_name);
+      if ((p=strchr(service_name, '/')))
+	 *p = '\0';
+   } else
+      service_name = "khttp";
+
    realms = conf->krb_auth_realms;
    do {
       if (realms && (code = krb5_set_default_realm(kcontext,
 	          		           ap_getword_white(r->pool, &realms))))
 	 continue;
 
-      code = krb5_parse_name(kcontext, MK_USER, &client);
+      if (client) {
+	 krb5_free_principal(kcontext, client);
+	 client = NULL;
+      }
+      code = krb5_parse_name(kcontext, sent_name, &client);
       if (code)
 	 continue;
 
       code = krb5_verify_user(kcontext, client, ccache, sent_pw, 1, 
-	    	(conf->service_name) ? conf->service_name : "khttp");
-      krb5_free_principal(kcontext, client);
-      client = NULL;
+	    		      service_name);
       if (code == 0)
 	 break;
 
@@ -565,11 +576,19 @@ int authenticate_user_krb5pwd(request_rec *r,
       goto end;
    }
 
-   if (conf->krb_save_credentials) {
-      ret = store_krb5_creds(kcontext, r, conf, ccache);
-      if (ret) /* Ignore error ?? */
-	 goto end;
+   code = krb5_unparse_name(kcontext, client, &name);
+   if (code) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "krb5_unparse_name() failed: %s",
+	         krb5_get_err_text(kcontext, code));
+      ret = HTTP_UNAUTHORIZED;
+      goto end;
    }
+   MK_USER = ap_pstrdup (r->pool, name);
+   MK_AUTH_TYPE = "Basic";
+   free(name);
+
+   if (conf->krb_save_credentials)
+      store_krb5_creds(kcontext, r, conf, ccache);
 
    ret = OK;
 
