@@ -667,21 +667,14 @@ int authenticate_user_krb5pwd(request_rec *r,
       goto end;
    }
 
-   /* XXX Heimdal allows to use the MEMORY: type with empty argument ? */
-   ccname = ap_psprintf(r->pool, "MEMORY:%s/krb5cc_apache_XXXXXX", P_tmpdir);
-   fd = mkstemp(ccname + strlen("MEMORY:"));
-   if (fd < 0) {
-      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-                 "mkstemp() failed: %s", strerror(errno));
-      ret = HTTP_INTERNAL_SERVER_ERROR;
-      goto end;
-   }
-   close(fd);
-
-   code = krb5_cc_resolve(kcontext, ccname, &ccache);
+#ifdef HEIMDAL
+   code = krb5_cc_gen_new(kcontext, &krb5_mcc_ops, &ccache);
+#else
+   code = krb5_cc_resolve(kcontext, "MEMORY:", &ccache);
+#endif
    if (code) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-                 "krb5_cc_resolve() failed: %s",
+	         "generating new memory ccache failed: %s",
                  krb5_get_err_text(kcontext, code));
       ret = HTTP_INTERNAL_SERVER_ERROR;
       unlink(ccname);
