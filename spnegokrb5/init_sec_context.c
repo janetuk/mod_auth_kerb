@@ -2,24 +2,27 @@
  *  SPNEGO wrapper for Kerberos5 GSS-API
  *  kouril@ics.muni.cz, 2003
  */
-#include <stdlib.h>
-#include <errno.h>
 
-#include <gssapi.h>
-#include <spnego_asn1.h>
+#include "spnegokrb5_locl.h"
 
 #define ALLOC(X) (X) = calloc(1, sizeof(*(X)))
 
 static int
-add_mech(MechTypeList *mech_list, oid *mech)
+add_mech(MechTypeList *mech_list, gss_OID mech)
 {
    MechType *tmp;
+   int ret;
 
    tmp = realloc(mech_list->val, (mech_list->len + 1) * sizeof(*tmp));
    if (tmp == NULL)
       return ENOMEM;
    mech_list->val = tmp;
-   copy_MechType(mech, mech_list->val + mech_list->len);
+
+   ret = der_get_oid(mech->elements, mech->length, 
+	             &mech_list->val[mech_list->len], NULL);
+   if (ret)
+     return ret;
+
    mech_list->len++;
    return 0;
 }
@@ -66,14 +69,8 @@ OM_uint32 gss_init_sec_context_spnego(
    size_t buf_size;
    size_t len;
    int ret;
-   unsigned krb5_oid_array[] = 
-   	{0x2a, 0x86, 0x48, 0x86, 0xf7, 0x12, 0x01, 0x02, 0x02};
-   oid krb5_oid;
 
    memset(&token_init, 0, sizeof(token_init));
-
-   krb5_oid.length = sizeof(krb5_oid_array);
-   krb5_oid.components = krb5_oid_array;
 
    ALLOC(token_init.mechTypes);
    if (token_init.mechTypes == NULL) {
@@ -81,13 +78,14 @@ OM_uint32 gss_init_sec_context_spnego(
       return GSS_S_FAILURE;
    }
 
-   ret = add_mech(token_init.mechTypes, &krb5_oid);
+   ret = add_mech(token_init.mechTypes, GSS_KRB5_MECH);
    if (ret) {
       *minor_status = ret;
       ret = GSS_S_FAILURE;
       goto end;
    }
 
+#if 0
    ALLOC(token_init.reqFlags);
    if (token_init.reqFlags == NULL) {
       *minor_status = ENOMEM;
@@ -95,12 +93,13 @@ OM_uint32 gss_init_sec_context_spnego(
       goto end;
    }
    set_context_flags(req_flags, token_init.reqFlags);
+#endif
 
    major_status = gss_init_sec_context(minor_status,
 	 			       initiator_cred_handle,
 				       context_handle,
 				       target_name,
-				       (gss_OID) &krb5_oid,
+				       GSS_KRB5_MECH,
 				       req_flags,
 				       time_req,
 				       input_chan_bindings,
@@ -129,16 +128,50 @@ OM_uint32 gss_init_sec_context_spnego(
    /* The MS implementation of SPNEGO seems to not like the mechListMIC field,
     * so we omit it (it's optional anyway) */
 
-   ASN1_MALLOC_ENCODE(NegTokenInit, buf, buf_size, &token_init, &len, ret);
-   if (ret || buf_size != len) {
-      *minor_status = EINVAL; /* XXX */
-      ret = GSS_S_FAILURE;
-      goto end;
-   }
+   buf_size = 1024;
+   buf = malloc(buf_size);
 
-   output_token->value = buf;
-   output_token->length = buf_size;
-   buf = NULL;
+    do {
+	ret = encode_NegTokenInit(buf + buf_size -1,
+				  buf_size,
+				  &token_init, &len);
+	if (ret == 0) {
+	    size_t tmp;
+
+	    ret = der_put_length_and_tag(buf + buf_size - len - 1,
+					 buf_size - len,
+					 len,
+					 CONTEXT,
+					 CONS,
+					 0,
+					 &tmp);
+	    if (ret == 0)
+		len += tmp;
+	}
+	if (ret) {
+	    if (ret == ASN1_OVERFLOW) {
+		u_char *tmp;
+
+		buf_size *= 2;
+		tmp = realloc (buf, buf_size);
+		if (tmp == NULL) {
+		    *minor_status = ENOMEM;
+		    ret = GSS_S_FAILURE;
+		    goto end;
+		}
+		buf = tmp;
+	    } else {
+		*minor_status = ret;
+		ret = GSS_S_FAILURE;
+		goto end;
+	    }
+	}
+    } while (ret == ASN1_OVERFLOW);
+
+    ret = gssapi_spnego_encapsulate(minor_status,
+	                            buf + buf_size - len, len,
+				    output_token, "\x01\x00");
+
    ret = major_status;
 
 end:
