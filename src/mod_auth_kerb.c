@@ -445,7 +445,7 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
    memset(&creds, 0, sizeof(creds));
 
    ret = krb5_get_init_creds_password(context, &creds, principal, 
-	 			      (char *)password, krb5_prompter_posix,
+	 			      (char *)password, NULL,
 				      NULL, 0, NULL, NULL);
    if (ret) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
@@ -669,11 +669,7 @@ int authenticate_user_krb5pwd(request_rec *r,
       goto end;
    }
 
-#ifdef HEIMDAL
-   code = krb5_cc_gen_new(kcontext, &krb5_mcc_ops, &ccache);
-#else
    code = krb5_cc_resolve(kcontext, "MEMORY:", &ccache);
-#endif
    if (code) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	         "generating new memory ccache failed: %s",
