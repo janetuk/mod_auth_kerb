@@ -1,3 +1,8 @@
+2002-07-09  Daniel Henninger  <daniel@ncsu.edu>
+
+	* apache1/auth_cmds.c:
+	Started various apache config options.
+
 2002-07-07  Daniel Henninger  <daniel@ncsu.edu>
 
 	* TODO:
