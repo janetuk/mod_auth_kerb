@@ -453,6 +453,12 @@ end:
 /*************************************************************************** 
  Username/Password Validation for Krb5
  ***************************************************************************/
+
+/* MIT kerberos uses replay cache checks even during credential verification
+ * (i.e. in krb5_verify_init_creds()), which is obviosuly useless. In order to
+ * avoid problems with multiple apache processes accessing the same rcache file
+ * we had to use this call instead, which is only a bit modified version of
+ * krb5_verify_init_creds() */
 static krb5_error_code
 verify_krb5_init_creds(krb5_context context, krb5_creds *creds,
                        krb5_principal ap_req_server, krb5_keytab ap_req_keytab)
@@ -509,6 +515,7 @@ verify_krb5_init_creds(krb5_context context, krb5_creds *creds,
    ret = krb5_auth_con_init(context, &auth_context);
    if (ret)
       goto end;
+   /* use KRB5_AUTH_CONTEXT_DO_SEQUENCE to skip replay cache checks */
    krb5_auth_con_setflags(context, auth_context, KRB5_AUTH_CONTEXT_DO_SEQUENCE);
 
    ret = krb5_rd_req (context, &auth_context, &req, ap_req_server,
@@ -531,12 +538,13 @@ end:
 /* Inspired by krb5_verify_user from Heimdal */
 static krb5_error_code
 verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
-      		 krb5_ccache ccache, const char *password, const char *service,
-		 krb5_keytab keytab, int krb_verify_kdc)
+      		 const char *password, const char *service, krb5_keytab keytab,
+		 int krb_verify_kdc, krb5_ccache *ccache)
 {
    krb5_creds creds;
    krb5_principal server = NULL;
    krb5_error_code ret;
+   krb5_ccache ret_ccache = NULL;
 
    /* XXX error messages shouldn't be logged here (and in the while() loop in
     * authenticate_user_krb5pwd() as weell), in order to avoid confusing log
@@ -583,28 +591,38 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
        goto end;
    }
 
-   if (ccache) {
-      ret = krb5_cc_initialize(context, ccache, principal);
-      if (ret) {
-	 log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	            "krb5_cc_initialize() failed: %s",
-		    krb5_get_err_text(context, ret));
-	 goto end;
-      }
-
-      ret = krb5_cc_store_cred(context, ccache, &creds);
-      if (ret) {
-	 log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	            "krb5_cc_store_cred() failed: %s",
-		    krb5_get_err_text(context, ret));
-	 goto end;
-      }
+   ret = krb5_cc_resolve(context, "MEMORY:", &ret_ccache);
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r, 
+   	         "generating new memory ccache failed: %s",
+ 		 krb5_get_err_text(kcontext, ret));
+      goto end;
    }
+
+   ret = krb5_cc_initialize(context, ret_ccache, principal);
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+		 "krb5_cc_initialize() failed: %s",
+		 krb5_get_err_text(context, ret));
+      goto end;
+   }
+
+   ret = krb5_cc_store_cred(context, ret_ccache, &creds);
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+		 "krb5_cc_store_cred() failed: %s",
+		 krb5_get_err_text(context, ret));
+      goto end;
+   }
+   *ccache = ret_ccache;
+   ret_ccache = NULL;
 
 end:
    krb5_free_cred_contents(context, &creds);
    if (server)
       krb5_free_principal(context, server);
+   if (ret_ccache)
+      krb5_cc_destroy(context, ret_ccache);
 
    return ret;
 }
@@ -752,8 +770,6 @@ int authenticate_user_krb5pwd(request_rec *r,
    int             ret;
    char            *name = NULL;
    int             all_principals_unkown;
-   char            *ccname = NULL;
-   int             fd;
 
    code = krb5_init_context(&kcontext);
    if (code) {
@@ -776,16 +792,6 @@ int authenticate_user_krb5pwd(request_rec *r,
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	         "empty passwords are not accepted");
       ret = HTTP_UNAUTHORIZED;
-      goto end;
-   }
-
-   code = krb5_cc_resolve(kcontext, "MEMORY:", &ccache);
-   if (code) {
-      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	         "generating new memory ccache failed: %s",
-                 krb5_get_err_text(kcontext, code));
-      ret = HTTP_INTERNAL_SERVER_ERROR;
-      unlink(ccname);
       goto end;
    }
 
@@ -815,9 +821,9 @@ int authenticate_user_krb5pwd(request_rec *r,
 	 continue;
       }
 
-      code = verify_krb5_user(r, kcontext, client, ccache, sent_pw, 
+      code = verify_krb5_user(r, kcontext, client, sent_pw, 
 	    		      conf->krb_service_name, 
-	    		      keytab, conf->krb_verify_kdc);
+	    		      keytab, conf->krb_verify_kdc, &ccache);
       if (!conf->krb_authoritative && code) {
 	 /* if we're not authoritative, we allow authentication to pass on
 	  * to another modules if (and only if) the user is not known to us */
@@ -882,7 +888,6 @@ get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
    OM_uint32 msg_ctx = 0;
    gss_buffer_desc status_string;
    char *err_msg;
-   size_t len;
 
    err_msg = ap_pstrdup(p, prefix);
    do {
@@ -1012,14 +1017,14 @@ get_gss_creds(request_rec *r,
     * Note that this is a dirty hack to get things working and there may
     * well be unknown side-effects.
     */
-   if (memcmp(((krb5_gss_cred_id_t) *server_creds)->rcache->ops->type, "dfl", 3) == 0)
-      /* Override the rcache operations */
-      ((krb5_gss_cred_id_t) *server_creds)->rcache->ops = &mod_auth_kerb_rc_ops;
-#if 0
-   else
-      /* rcache did not point to default rcache structure, return error */
-      return HTTP_INTERNAL_SERVER_ERROR;
-#endif
+   {
+      krb5_gss_cred_id_t gss_creds = (krb5_gss_cred_id_t) *server_creds;
+
+      if (gss_creds && gss_creds->rcache && gss_creds->ops->type &&
+	  memcmp(gss_creds->rcache->ops->type, "dfl", 3) == 0)
+          /* Override the rcache operations */
+	 gss_creds->rcache->ops = &mod_auth_kerb_rc_ops;
+   }
 #endif
    
    return 0;
