@@ -506,8 +506,6 @@ verify_krb5_init_creds(krb5_context context, krb5_creds *creds,
       goto end;
    krb5_auth_con_setflags(context, auth_context, KRB5_AUTH_CONTEXT_DO_SEQUENCE);
 
-   auth_context = NULL;
-
    ret = krb5_rd_req (context, &auth_context, &req, ap_req_server,
 		      keytab, 0, NULL);
 
