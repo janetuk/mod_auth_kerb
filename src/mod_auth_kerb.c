@@ -1145,6 +1145,8 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
 				  NULL,
 				  NULL,
 				  &delegated_cred);
+  log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	     "Verification returned code %d", major_status);
   if (output_token.length) {
      char *token = NULL;
      size_t len;
@@ -1162,8 +1164,8 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
      token[len] = '\0';
      *negotiate_ret_value = token;
      log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
-	        "Verification suceeded, GSS-API token of length %d bytes will be sent back",
-		output_token.length);
+	        "GSS-API token of length %d bytes will be sent back",
+		major_status, output_token.length);
      gss_release_buffer(&minor_status2, &output_token);
   }
 
