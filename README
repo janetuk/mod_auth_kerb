@@ -1,6 +1,7 @@
 1. ./configure
 2. make
-3. edit your httpd.conf, eg:
+3. make install
+4. edit your httpd.conf, eg:
    <Directory "/var/www/secure">
       Options Indexes FollowSymLinks
       AuthType Kerberos
@@ -10,4 +11,4 @@
       KrbMethodK5Pass On
       require valid-user
    </Directory>
-4. start httpd
+5. start httpd
