@@ -921,14 +921,14 @@ get_gss_creds(request_rec *r,
     * the MIT as replay (Two valid MS authenticators may contain the same time
     * and utime fields and only differ in the sequential numbers).
     */
-   snprintf(buf, sizeof(buf), "%s/%s", conf->krb_service_name,
+   snprintf(buf, sizeof(buf), "%s@%s", conf->krb_service_name,
 	 ap_get_server_name(r));
 
    input_token.value = buf;
    input_token.length = strlen(buf) + 1;
 
    major_status = gss_import_name(&minor_status, &input_token,
-	 			  GSS_C_NT_USER_NAME,
+	 			  GSS_C_NT_HOSTBASED_SERVICE,
 				  &server_name);
    if (GSS_ERROR(major_status)) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
@@ -1130,7 +1130,8 @@ end:
   if (client_name != GSS_C_NO_NAME)
      gss_release_name(&minor_status, &client_name);
 
-  cleanup_gss_connection(gss_connection);
+  if (! major_status & GSS_S_CONTINUE_NEEDED)
+     cleanup_gss_connection(gss_connection);
 
   return ret;
 }
