@@ -178,9 +178,9 @@ OM_uint32 gss_accept_sec_context_spnego
 {
    NegTokenInit init_token;
    OM_uint32 major_status;
+   OM_uint32 minor_status2;
    gss_buffer_desc ibuf, obuf;
    gss_buffer_t ot = NULL;
-   OM_uint32 minor;
    unsigned char *buf;
    size_t buf_size;
    size_t len, taglen, ni_len;
@@ -232,7 +232,7 @@ OM_uint32 gss_accept_sec_context_spnego
       ibuf.length = init_token.mechToken->length;
       ibuf.value  = init_token.mechToken->data;
 
-      major_status = gss_accept_sec_context(&minor,
+      major_status = gss_accept_sec_context(minor_status,
 	    				    context_handle,
 					    acceptor_cred_handle,
 					    &ibuf,
@@ -252,7 +252,7 @@ OM_uint32 gss_accept_sec_context_spnego
 
    ret = send_accept (minor_status, output_token, ot);
    if (ot != NULL)
-      gss_release_buffer(&minor, ot);
+      gss_release_buffer(&minor_status2, ot);
 
    return ret;
 }
