@@ -48,10 +48,10 @@ if test "x$with_krb5" != "xno" ; then
         krb5_config_command="$with_krb5/bin/krb5-config"
      else 
         # quick fix for OpenBSD installations where krb5-config is missing.
-        # OpenBSD uses Heimdal, so add libs for Heimdal (libcrypto from
-        # Openssl is supposed to be installed somewhere in the system)
+        # OpenBSD uses Heimdal, so add openbsd-specific configuration 
+        # libs for Heimdal 
         KRB5_CPPFLAGS="-I$with_krb5/include"
-        KRB5_LDFLAGS="-L$with_krb5/lib -lkrb5 -lasn1 -lroken -lcrypt -lcrypto"
+        KRB5_LDFLAGS="-L$with_krb5/lib -lkrb5 -lasn1 -ldes -lcrypt"
         krb5_config_command=""
      fi
   fi
