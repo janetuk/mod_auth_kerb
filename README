@@ -19,89 +19,12 @@ plain text. To counter this, I would suggest also using mod_ssl or Apache-SSL.
 The use of SSL encryption is also recommended if you are using the Negotiate
 method.
 
-Installing mod_auth_kerb
-------------------------
-
-Prerequisites
-
-    * Development enviroment (i.e. libraries and header files) for Kerberos5
-      and/or Kerberos4.
-      The module is known to work with the MIT Kerberos implementation
-      (supporting both krb4 and krb5), the kth-krb Kerberos4 implementation,
-      and the Heimdal Kerberos5 implementation. The Kerberos installation on
-      your system should contain the krb4-config and/or krb5-config command(s).
-    * Apache server installed.
-      Both 1.x and 2.x series of Apache are supported (make sure the apache
-      installation contains the apxs command)
-    * Working C compiler, GNU make.
-    * The latest source of the module available from the main project site
-      (http://sourceforge.net/project/showfiles.php?group_id=51775). 
-
-You will also need to have an working Kerberos enviroment, of course.
-
 Building and installing the module
-
-Unpack the distribution tarball and run the configure script. The script looks for krb5 and krb4 libraries and headers and then for an Apache installation directory. You can use following flags to specify locations of these files:
-
-    * --with-krb4=
-      --with-krb5=
-      these options are used to specify locations of the installation
-      directories for krb4 and krb5, respectively. If you don't want to
-      compile support for one of the method, use no as the appropriate
-      parameter.
-    * --with-apache=
-      use this parameter to specify location where the Apache installation
-      resides. 
-
-After the configuration script finishes run make followed by make install. You
-will need to have writing permission for the apache directory in order to
-install the module. An example of the building stage follows:
-
-  ./configure --with-krb5=/software/krb5-1.3.1		\
-              --with-krb4=no				\
-              --with-apache=/software/apache-2.0.47
-  make
-  su
-  make install
-
-After installing the module you have to adapt the apache configuration. See
-this page for detailed information on configuration.  You can submit any
-comment, questions, bugs etc. via the project page.
-
-
-Configuration
--------------
-
-Before starting configuring the module make sure your Kerberos enviroment is
-properly configured (i.e. KDC, /etc/krb5.conf, etc.). The easiest way to check
-is using the kinit command from the apache machine to get a ticket for some
-known principal (preferably that one who will be used to test the module).
-
-Now you have to create an service key for the module, which is needed to
-perform client authentication. Verification of the kerberos password has two
-steps. In the first one the KDC is contacted using the password trying to
-receive a ticket for the client. After this ticket is sucessfuly acquired, the
-module must also verify that KDC hasn't been deliberately faked and the ticket
-just received can be trusted. If this check would haven't been done any
-attacker capable of spoofing the KDC could impersonate any principal registered
-with the KDC. In order to do this check the apache module must verify that the
-KDC knows its service key, which the apache shares with the KDC. This service
-key must be created during configuration the module. This service key is also
-needed when the Negotiate method is used. In this case the module acts as a
-standard kerberos service (similarly to e.g. kerberized ssh or ftp servers).
-Default name of the service key is HTTP/<fqdn_of_www_server>@REALM, another
-name of the first instance can be set using the KrbServiceName option. The key
-must be stored in a keytab on a local disk, the Krb5Keytab and Krb4Srvtab
-options are used to specify the filename with the keytab. This file should be
-only readable for the apache process and contain only the key used for www
-authentication.
-
-In order to get the module loaded on start of apache add following line to your
-httpd.conf:
-
-	LoadModule	auth_kerb_module	libexec/mod_auth_kerb.so
+----------------------------------
+see INSTALL
 
 Summary of Supported Directives
+-------------------------------
 
 AuthType type
    For Kerberos authentication to work, AuthType must be set to 'Kerberos'. For
@@ -156,26 +79,42 @@ Krb5Keytab /path/to/keytab
 KrbSaveCredentials on | off	(set to off by default)
    This option enables credential saving functionality.
 
+KrbDelegateBasic on | off       (set to off by default)
+   If set to 'on' this options causes that Basic authentication is always
+   offered regardless setting the KrbMethodK[45]Pass directives. Then, if 
+   a Basic authentication header arrives authentication decision is passed
+   along to another modules. This option is a work-around for insufficient
+   authentication scheme in Apache (Apache 2.1 seems to provide better support
+   for multiple various authentication mechanisms).
+
+Note on server principals
+-------------------------
+Now you have to create an service key for the module, which is needed to
+perform client authentication. Verification of the kerberos password has two
+steps. In the first one the KDC is contacted using the password trying to
+receive a ticket for the client. After this ticket is sucessfuly acquired, the
+module must also verify that KDC hasn't been deliberately faked and the ticket
+just received can be trusted. If this check would haven't been done any
+attacker capable of spoofing the KDC could impersonate any principal registered
+with the KDC. In order to do this check the apache module must verify that the
+KDC knows its service key, which the apache shares with the KDC. This service
+key must be created during configuration the module. This service key is also
+needed when the Negotiate method is used. In this case the module acts as a
+standard kerberos service (similarly to e.g. kerberized ssh or ftp servers).
+Default name of the service key is HTTP/<fqdn_of_www_server>@REALM, another
+name of the first instance can be set using the KrbServiceName option. The key
+must be stored in a keytab on a local disk, the Krb5Keytab and Krb4Srvtab
+options are used to specify the filename with the keytab. This file should be
+only readable for the apache process and contain only the key used for www
+authentication.
+
 Ticket File/Credential Cache Saving
-   Sometimes there is need to keep the ticket file or credential cache around
-   after a user authenticates, normally for cgi scripts. If you turn on
-   KrbSaveCredentials, the tickets will be retrieved into a ticket file or
-   credential cache that will be available for the request handler. The ticket
-   file will be removed after request is handled.
+-----------------------------------
+Sometimes there is need to keep the ticket file or credential cache around
+after a user authenticates, normally for cgi scripts. If you turn on
+KrbSaveCredentials, the tickets will be retrieved into a ticket file or
+credential cache that will be available for the request handler. The ticket
+file will be removed after request is handled.
 
-   A CGI script can use these files by setting the KRB5CCNAME (v5) or KRBTKFILE
-   (v4) environment variables to point to the filename as listed above. A
-   sample script to use the KRB5CCNAME is here.
-
-Sample .htaccess
-
-	AuthType Kerberos
-	AuthName "Kerberos Login"
-	KrbAuthRealms KRB.NCSU.EDU NCSU.EDU
-	KrbMethodK4Passwd off
-	require user principal1@KRB.NCSU.EDU principal2@NCSU.EDU
-
-Reminder, you need to set the appropriate AllowOverride directive in your
-server access configuration so that a different AuthType will be allowed.
-
-$Id$
+$Id: README,v 1.8 2004/01/13
+14:31:53 kouril Exp $
