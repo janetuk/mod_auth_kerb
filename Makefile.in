@@ -14,13 +14,13 @@ else
 endif
 CFLAGS = -Wc-g
 
-all: modauthkerb
+all: src/mod_auth_kerb.so
 
-libspnegokrb5:
+spnegokrb5/libspnegokrb5.a:
 	(cd spnegokrb5 && make)
 
-modauthkerb: libspnegokrb5
-	$(APXS) -c $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) src/mod_auth_kerb.c
+src/mod_auth_kerb.so: spnegokrb5/libspnegokrb5.a src/mod_auth_kerb.c
+	$(APXS) -c -o $@ $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) src/mod_auth_kerb.c
 
 install: $(TARGET)
 	$(APXS) -i src/mod_auth_kerb.so
