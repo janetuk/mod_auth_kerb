@@ -47,11 +47,14 @@ if test "x$with_krb5" != "xno" ; then
      if test -x "$with_krb5/bin/krb5-config"; then
         krb5_config_command="$with_krb5/bin/krb5-config"
      else 
-        # quick fix for OpenBSD installations where krb5-config is missing.
-        # OpenBSD uses Heimdal, so add openbsd-specific configuration 
-        # libs for Heimdal 
+        ac_save_cflags=$CFLAGS
+        CFLAGS="-I$with_krb5/include"
+        AC_TRY_COMPILE([#include <krb5.h>],
+                       [ char *tmp = heimdal_version; ],
+                       [ KRB5_LDFLAGS="-L$with_krb5/lib -lgssapi -lkrb5 -lasn1 -ldes -lcrypt" ],
+                       [ KRB5_LDFLAGS="-L$with_krb5/lib -lgssapi_krb5 -lkrb5 -lk5crypto -lcom_err" ])
         KRB5_CPPFLAGS="-I$with_krb5/include"
-        KRB5_LDFLAGS="-L$with_krb5/lib -lgssapi -lkrb5 -lasn1 -ldes -lcrypt"
+        CFLAGS="$ac_save_cflags"
         krb5_config_command=""
      fi
   fi
@@ -76,9 +79,6 @@ if test "x$with_krb5" != "xno" ; then
      AC_CHECK_LIB(krb5, krb5_init_context, [], [with_krb5=no])
 
      if test "x$with_krb5" != "xno"; then
-        # check if krb5_cc_gen_new() is implemented by the krb5 library
-        AC_CHECK_FUNC(krb5_cc_gen_new, [AC_DEFINE(HAVE_KRB5_CC_GEN_NEW)])
-
         # check for Heimdal
         AC_MSG_CHECKING(whether we are using Heimdal)
 	AC_TRY_COMPILE([#include <krb5.h>],
@@ -210,21 +210,39 @@ AC_ARG_WITH(apache,
   [ with_apache="$withval" ])
 
 AC_MSG_CHECKING([for Apache installation])
+HTTPD=""
+APXS=""
+if test -n "$with_apache"; then
+  apache_dirs="$with_apache/sbin $with_apache/bin"
+else
+# XXX the PATH variable should be used rather
+  apache_dirs="/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin"
+fi
 
-APXS="apxs"
-HTTPD="httpd"
-if test "x$with_apache" != "x"; then
-  if test ! -x "$with_apache/bin/httpd" -o ! -x "$with_apache/bin/apxs"; then
-     AC_MSG_ERROR([failed to find apache files in $with_apache])
+for dir in $apache_dirs; do
+  if test -z "$HTTPD"; then
+     for name in apache2 apache httpd; do
+        if test -x "$dir/$name"; then
+           HTTPD="$dir/$name"
+           break
+        fi
+     done
   fi
-  APXS="$with_apache/bin/apxs"
-  if test ! -x $APXS; then
-     APXS="$with_apache/sbin/apxs"
+  if test -z "$APXS"; then
+     for name in apxs2 apxs; do
+        if test -x "$dir/$name"; then
+           APXS="$dir/$name"
+           break
+        fi
+     done
   fi
-  HTTPD="$with_apache/bin/httpd"
-  if test ! -x $HTTPD; then
-     HTTPD"$with_apache/sbin/httpd"
-  fi
+done
+
+if test -z "$HTTPD"; then
+   AC_MSG_ERROR([failed to find apache httpd executable])
+fi
+if test -z "$APXS"; then
+   AC_MSG_ERROR([failed to find apache apxs executable])
 fi
 
 apache_v1_3=`$HTTPD -v | grep "^Server version: Apache/1.3."`
