@@ -96,6 +96,7 @@
 #  define GSS_C_NT_HOSTBASED_SERVICE gss_nt_service_name
 #  define krb5_get_err_text(context,code) error_message(code)
 #endif
+#include "spnegokrb5.h"
 #endif /* KRB5 */
 
 #ifdef KRB4
@@ -858,6 +859,33 @@ get_gss_creds(request_rec *r,
 }
 
 static int
+cmp_gss_type(gss_buffer_t token, gss_OID oid)
+{
+   unsigned char *p;
+   size_t len;
+
+   if (token->length == 0)
+      return GSS_S_DEFECTIVE_TOKEN;
+
+   p = token->value;
+   if (*p++ != 0x60)
+      return GSS_S_DEFECTIVE_TOKEN;
+   len = *p++;
+   if (len & 0x80) {
+      if ((len & 0x7f) > 4)
+	 return GSS_S_DEFECTIVE_TOKEN;
+      p += len & 0x7f;
+   }
+   if (*p++ != 0x06)
+      return GSS_S_DEFECTIVE_TOKEN;
+
+   if (((OM_uint32) *p++) != oid->length)
+      return GSS_S_DEFECTIVE_TOKEN;
+
+   return memcmp(p, oid->elements, oid->length);
+}
+
+static int
 authenticate_user_gss(request_rec *r,
       	 	      kerb_auth_config *conf,
 		      const char *auth_line)
@@ -869,6 +897,11 @@ authenticate_user_gss(request_rec *r,
   int ret;
   gss_name_t client_name = GSS_C_NO_NAME;
   gss_cred_id_t delegated_cred = GSS_C_NO_CREDENTIAL;
+  OM_uint32 (*accept_sec_token)();
+  gss_OID_desc spnego_oid;
+
+  spnego_oid.length = 6;
+  spnego_oid.elements = (void *)"\x2b\x06\x01\x05\x05\x02";
 
   if (gss_connection == NULL) {
      gss_connection = ap_pcalloc(r->connection->pool, sizeof(*gss_connection));
@@ -922,22 +955,20 @@ authenticate_user_gss(request_rec *r,
   }
   input_token.length = ap_base64decode(input_token.value, auth_param);
 
-#if 0 
-  major_status = gss_accept_sec_context(
-#else
-  major_status = gss_accept_sec_context_spnego(
-#endif
-				        &minor_status,
-	                                &gss_connection->context,
-					gss_connection->server_creds,
-					&input_token,
-					GSS_C_NO_CHANNEL_BINDINGS,
-					&client_name,
-					NULL,
-					&output_token,
-					NULL,
-					NULL,
-					&delegated_cred);
+  accept_sec_token = (cmp_gss_type(&input_token, &spnego_oid) == 0) ?
+     			gss_accept_sec_context_spnego : gss_accept_sec_context;
+
+  major_status = accept_sec_token(&minor_status,
+				  &gss_connection->context,
+				  gss_connection->server_creds,
+				  &input_token,
+				  GSS_C_NO_CHANNEL_BINDINGS,
+				  &client_name,
+				  NULL,
+				  &output_token,
+				  NULL,
+				  NULL,
+				  &delegated_cred);
   if (output_token.length) {
      char *token = NULL;
      size_t len;
