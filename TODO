@@ -23,6 +23,7 @@
 
 - Authoritative Support
 	If Kerberos check fails, don't fall through to other modules.
+	Should I used AuthAuthoritative for this or a specific Kerb one?
 
 - Lifetime Settable
 	Set lifetime of tickets in config.
@@ -44,3 +45,38 @@
 
 - Forwardable/Renewable Tickets
 	Setting in config.
+
+- Browser Mutual Auth Support
+	Combined with plugins, use auth user already has.
+
+- AuthKerberosType(name?)
+	Way to both have a normal AuthType and a Kerberos authtype,
+	in case you want to turn authoritative off and have it punt
+	to something else specific
+	Re: msg 268 "Jason Gilbert"
+
+- Environment Variables
+	KRB5CCNAME, KRBTKFILE
+	KRB_PRINC_NAME?
+	Re: msg 266 Christopher Lindsey
+
+- Multi-Realm Support
+	require realm EOS.NCSU.EDU maybe?
+
+- HEIMDEL Support
+	Mods to make sure it works with the HEIMDEL releases.
+
+- Mods To Work With STRONGHOLD and SSL
+
+- Guards Against Replay Attack Checks?
+	Re: msg 249 Fabian Ritzmann
+	Maybe some form of cookie support?
+
+- KRB5LEGACY Check
+	Need to make sure it works with older Krb's
+
+- Provide "Logout" Sample Script
+	PHP, maybe perl, who knows.
+	Sample PHP one in mail.
+
+
