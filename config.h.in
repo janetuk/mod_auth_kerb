@@ -9,9 +9,6 @@
 /* Define if you are using the Heimdal implementation of Krb5 */
 #undef HEIMDAL
 
-/* Define if krb5_cc_gen_new() was found in the krb5 library */
-#undef HAVE_KRB5_CC_GEN_NEW
-
 /* Define if you want to enable support for Kerberos5 */
 #undef KRB5
 
