@@ -527,7 +527,12 @@ verify_krb5_init_creds(krb5_context context, krb5_creds *creds,
 		      keytab, 0, NULL);
 
 end:
+#ifdef HEIMDAL
+   /* XXX Do I ever want to support Heimdal 0.4 ??? */
+   krb5_data_free(&req);
+#else
    krb5_free_data_contents(context, &req);
+#endif
    if (auth_context)
       krb5_auth_con_free (context, auth_context);
    if (new_creds)
@@ -1132,6 +1137,7 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
   accept_sec_token = (cmp_gss_type(&input_token, &spnego_oid) == 0) ?
      			gss_accept_sec_context_spnego : gss_accept_sec_context;
 
+  /* pridat: Read client Negotiate data of length XXX, prefix YYY */
   log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Verifying client data using %s",
 	     (accept_sec_token == gss_accept_sec_context)
 	       ? "KRB5 GSS-API"
