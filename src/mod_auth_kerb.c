@@ -7,12 +7,6 @@
 #include "http_protocol.h"
 #include "http_request.h"
 
-#if 0
-#include "apr_strings.h"
-#include "apr_lib.h"
-#include "ap_config.h"
-#endif
-
 #ifdef KRB5
 #include <krb5.h>
 #include <gssapi.h>
@@ -27,7 +21,6 @@ module kerb_auth_module;
 #else
 module AP_MODULE_DECLARE_DATA kerb_auth_module;
 #endif
-
 
 /*************************************************************************** 
  Macros To Ease Compatibility
@@ -82,168 +75,77 @@ typedef struct {
 } kerb_auth_config;
 
 #ifdef APXS1
-static const command_rec kerb_auth_cmds[] = {
-   { "AuthKerberos", ap_set_flag_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_auth_enable),
-     OR_AUTHCFG, FLAG, "Permit Kerberos auth without AuthType requirement." },
-     
-   { "KrbAuthRealm", ap_set_string_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_auth_realms),
-     OR_AUTHCFG, ITERATE, "Realms to attempt authentication against (can be multiple)." },
-     
-   { "KrbAuthRealms", ap_set_string_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_auth_realms),
-     OR_AUTHCFG, ITERATE, "Alias for KrbAuthRealm." },
-
-#if 0
-   { "KrbFailStatus", kerb_set_fail_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_fail_status),
-     OR_AUTHCFG, TAKE1, "If auth fails, return status set here." },
+#define command(name, func, var, type, usage) 		\
+  { name, func, 					\
+    (void*)XtOffsetOf(kerb_auth_config, var), 		\
+    OR_AUTHCFG, type, usage }
+#else
+#define command(name, func, var, type, usage)		\
+  AP_INIT_ ## type (name, func, 			\
+	(void*)APR_XtOffsetOf(kerb_auth_config, var),	\
+	OR_AUTHCFG, usage)
 #endif
 
-   { "KrbForceInstance", ap_set_string_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_force_instance),
-     OR_AUTHCFG, TAKE1, "Force authentication against an instance specified here." },
+static const command_rec kerb_auth_cmds[] = {
+   command("AuthKerberos", ap_set_flag_slot, krb_auth_enable,
+     FLAG, "Permit Kerberos auth without AuthType requirement."),
 
-    { "KrbSaveCredentials", ap_set_flag_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_save_credentials),
-     OR_AUTHCFG, FLAG, "Save and store credentials/tickets retrieved during auth." },
+   command("KrbAuthRealm", ap_set_string_slot, krb_auth_realms,
+     ITERATE, "Realms to attempt authentication against (can be multiple)."),
 
-   { "KrbSaveTickets", ap_set_flag_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_save_credentials),
-     OR_AUTHCFG, FLAG, "Alias for KrbSaveCredentials." },
-
-   { "KrbTmpdir", ap_set_string_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_tmp_dir),
-     OR_AUTHCFG, TAKE1, "Path to store ticket files and such in." },
-
-   { "KrbServiceName", ap_set_string_slot,
-     (void*)XtOffsetOf(kerb_auth_config, service_name),
-     OR_AUTHCFG, TAKE1, "Kerberos service name to be used by apache." },
+   command("KrbAuthRealm", ap_set_string_slot, krb_auth_realms,
+     ITERATE, "Alias for KrbAuthRealm."),
 
 #if 0
-   { "KrbLifetime", ap_set_string_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_lifetime),
-     OR_AUTHCFG, TAKE1, "Kerberos ticket lifetime." },
+   command("KrbFailStatus", kerb_set_fail_slot, krb_fail_status,
+     TAKE1, "If auth fails, return status set here."),
+#endif
+
+   command("KrbForceInstance", ap_set_string_slot, krb_force_instance,
+     TAKE1, "Force authentication against an instance specified here."),
+
+   command("KrbSaveCredentials", ap_set_flag_slot, krb_save_credentials,
+     FLAG, "Save and store credentials/tickets retrieved during auth."),
+
+   command("KrbSaveTickets", ap_set_flag_slot, krb_save_credentials,
+     FLAG, "Alias for KrbSaveCredentials."),
+
+   command("KrbTmpdir", ap_set_string_slot, krb_tmp_dir,
+     TAKE1, "Path to store ticket files and such in."),
+
+   command("KrbServiceName", ap_set_string_slot, service_name,
+     TAKE1, "Kerberos service name to be used by apache."),
+
+#if 0
+   command("KrbLifetime", ap_set_string_slot, krb_lifetime,
+     TAKE1, "Kerberos ticket lifetime."),
 #endif
 
 #ifdef KRB5
-   { "Krb5Keytab", ap_set_file_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_5_keytab),
-     OR_AUTHCFG, TAKE1, "Location of Kerberos V5 keytab file." },
+   command("Krb5Keytab", ap_set_file_slot, krb_5_keytab,
+     TAKE1, "Location of Kerberos V5 keytab file."),
 
-   { "KrbForwardable", ap_set_flag_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_forwardable),
-     OR_AUTHCFG, FLAG, "Credentials retrieved will be flagged as forwardable."},
+   command("KrbForwardable", ap_set_flag_slot, krb_forwardable,
+     FLAG, "Credentials retrieved will be flagged as forwardable."),
 
-   { "KrbMethodGSSAPI", ap_set_flag_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_method_gssapi),
-     OR_AUTHCFG, FLAG, "Enable GSSAPI authentication." },
+   command("KrbMethodGSSAPI", ap_set_flag_slot, krb_method_gssapi,
+     FLAG, "Enable GSSAPI authentication."),
 
-   { "KrbMethodK5Pass", ap_set_flag_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_method_k5pass), 
-     OR_AUTHCFG, FLAG, "Enable Kerberos V5 password authentication." },
+   command("KrbMethodK5Pass", ap_set_flag_slot, krb_method_k5pass,
+     FLAG, "Enable Kerberos V5 password authentication."),
 #endif 
 
 #ifdef KRB4
-   { "Krb4Srvtab", ap_set_file_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_4_srvtab),
-     OR_AUTHCFG, TAKE1, "Location of Kerberos V4 srvtab file." },
+   command("Krb4Srvtab", ap_set_file_slot, krb_4_srvtab,
+     TAKE1, "Location of Kerberos V4 srvtab file."),
 
-   { "KrbMethodK4Pass", ap_set_flag_slot,
-     (void*)XtOffsetOf(kerb_auth_config, krb_method_k4pass),
-     OR_AUTHCFG, FLAG, "Enable Kerberos V4 password authentication." },
+   command("KrbMethodK4Pass", ap_set_flag_slot, krb_method_k4pass,
+     FLAG, "Enable Kerberos V4 password authentication."),
 #endif
 
    { NULL }
 };
-#else
-static const command_rec kerb_auth_cmds[] = {
-   AP_INIT_FLAG("AuthKerberos", ap_set_flag_slot,
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_auth_enable),
-	 OR_AUTHCFG, "Permit Kerberos auth without AuthType requirement."),
 
-   
-
-#ifdef KRB4
-   AP_INIT_TAKE1("Krb4Srvtab", ap_set_file_slot,
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_4_srvtab),
-	 OR_AUTHCFG, "Location of Kerberos V4 srvtab file."),
-#endif /* KRB4 */
-
-#ifdef KRB5
-   AP_INIT_TAKE1("Krb5Keytab", ap_set_file_slot,
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_5_keytab),
-	 OR_AUTHCFG, "Location of Kerberos V5 keytab file."),
-#endif /* KRB5 */
-
-#if 0
-   AP_INIT_FLAG("KrbAuthoritative", ap_set_flag_slot,
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_authoritative),
-	 OR_AUTHCFG, "Refuse to pass request down to lower modules."),
-#endif
-
-   AP_INIT_ITERATE("KrbAuthRealm", ap_set_string_slot,
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_auth_realms),
- 	 OR_AUTHCFG, "Realm to attempt authentication against (can be multiple)."),
-
-#if 0
-   AP_INIT_TAKE1("KrbFailStatus", kerb_set_fail_slot,
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_fail_status),
-	 OR_AUTHCFG, "If auth fails, return status set here."),
-#endif
-
-   AP_INIT_TAKE1("KrbForceInstance", ap_set_string_slot,
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_force_instance),
-	 OR_AUTHCFG, "Force authentication against an instance specified here."),
-
-#ifdef KRB5
-   AP_INIT_FLAG("KrbForwardable", ap_set_flag_slot,
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_forwardable), 
- 	 OR_AUTHCFG, "Credentials retrieved will be flagged as forwardable."),
-#endif /* KRB5 */
-
-   AP_INIT_TAKE1("KrbLifetime", ap_set_string_slot, 
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_lifetime), 
- 	 OR_AUTHCFG, "Lifetime of tickets retrieved."),
-
-#ifdef GSSAPI
-   AP_INIT_FLAG("KrbMethodGSSAPI", ap_set_flag_slot, 
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_method_gssapi), 
- 	 OR_AUTHCFG, "Enable GSSAPI authentication."),
-#endif /* GSSAPI */
-
-#ifdef KRB4
-   AP_INIT_FLAG("KrbMethodK4Pass", ap_set_flag_slot,
- 	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_method_k4pass),
- 	 OR_AUTHCFG, "Enable Kerberos V4 password authentication."),
-#endif /* KRB4 */
-
-#ifdef KRB5
-   AP_INIT_FLAG("KrbMethodK5Pass", ap_set_flag_slot,
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_method_k5pass),
-	 OR_AUTHCFG, "Enable Kerberos V5 password authentication."),
-
-   AP_INIT_TAKE1("KrbRenewable", ap_set_string_slot,
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_renewable),
-	 OR_AUTHCFG, "Credentials retrieved will be renewable for this length."),
-#endif /* KRB5 */
-
-   AP_INIT_FLAG("KrbSaveCredentials", ap_set_flag_slot,
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_save_credentials),
- 	 OR_AUTHCFG, "Save and store credentials/tickets retrieved during auth."),
-
-   AP_INIT_FLAG("KrbSaveTickets", ap_set_flag_slot,
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_save_credentials),
- 	 OR_AUTHCFG, "Alias for KrbSaveCredentials."),
-
-   AP_INIT_TAKE1("KrbTmpdir", ap_set_string_slot,
-	 (void*)APR_XtOffsetOf(kerb_auth_config, krb_tmp_dir),
-	 OR_AUTHCFG, "Path to store ticket files and such in."),
-
-   { NULL }
-};
-#endif
 
 /*************************************************************************** 
  GSSAPI Support Initialization
