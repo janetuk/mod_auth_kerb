@@ -367,7 +367,8 @@ authenticate_user_krb4pwd(request_rec *r,
       if (realm == NULL || *realm == '\0')
 	 break;
 
-      ret = verify_krb4_user(r, (char *)sent_name, sent_instance,
+      ret = verify_krb4_user(r, (char *)sent_name, 
+	                     (sent_instance) ? sent_instance : "",
 	    		     (char *)realm, (char *)sent_pw, "khttp",
 			     conf->krb_4_srvtab);
       if (ret == 0)
@@ -383,8 +384,8 @@ authenticate_user_krb4pwd(request_rec *r,
 
    user = ap_pstrdup(r->pool, sent_name);
    if (sent_instance)
-      user = ap_pstrcat(r->pool, ".", sent_instance);
-   user = ap_pstrcat(r->pool, "@", realm);
+      user = ap_pstrcat(r->pool, user, ".", sent_instance, NULL);
+   user = ap_pstrcat(r->pool, user, "@", realm, NULL);
 
    MK_USER = user;
    MK_AUTH_TYPE = "Basic";
