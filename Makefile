@@ -7,7 +7,7 @@ KRB4_CPPFLAGS = -I$(KRB4_ROOT)/include -I$(KRB4_ROOT)/include/kerberosIV \
 	-I$(KRB5_ROOT)/include/kerberosIV
 
 CPPFLAGS = $(KRB5_CPPFLAGS) $(KRB4_CPPFLAGS) $(DEFS)
-LDFLAGS = $(KRB5_LDFLAGS) 
+LDFLAGS = -Lspnegokrb5 -lspnegokrb5 $(KRB5_LDFLAGS) -lresolv
 
 ifndef APXS
    APXS = apxs
@@ -19,7 +19,7 @@ libspnegokrb5:
 	(cd spnegokrb5 && make)
 
 modauthkerb: libspnegokrb5
-	$(APXS) -c -i $(CPPFLAGS) $(LDFLAGS) mod_auth_kerb.c
+	$(APXS) -c -i $(CPPFLAGS) $(LDFLAGS) src/mod_auth_kerb.c
 
 clean:
 	(cd spnegokrb5 && make clean)
