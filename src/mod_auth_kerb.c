@@ -61,14 +61,11 @@ module AP_MODULE_DECLARE_DATA auth_kerb_module;
  ***************************************************************************/
 typedef struct {
 	char *krb_auth_realms;
-	int krb_fail_status;
 	char *krb_force_instance;
 	int krb_save_credentials;
 	char *service_name;
-	char *krb_lifetime;
 #ifdef KRB5
 	char *krb_5_keytab;
-	int krb_forwardable;
 	int krb_method_gssapi;
 	int krb_method_k5pass;
 #endif
@@ -94,43 +91,24 @@ krb5_save_realms(cmd_parms *cmd, kerb_auth_config *sec, char *arg);
 #endif
 
 static const command_rec kerb_auth_cmds[] = {
-   command("KrbAuthRealm", krb5_save_realms, krb_auth_realms,
+   command("KrbAuthRealms", krb5_save_realms, krb_auth_realms,
      RAW_ARGS, "Realms to attempt authentication against (can be multiple)."),
 
-   command("KrbAuthRealms", krb5_save_realms, krb_auth_realms,
-     RAW_ARGS, "Alias for KrbAuthRealm."),
-
-#if 0
-   command("KrbFailStatus", kerb_set_fail_slot, krb_fail_status,
-     TAKE1, "If auth fails, return status set here."),
-#endif
-
-   command("KrbForceInstance", ap_set_string_slot, krb_force_instance,
-     TAKE1, "Force authentication against an instance specified here."),
+   command("KrbAuthRealm", krb5_save_realms, krb_auth_realms,
+     RAW_ARGS, "Alias for KrbAuthRealms."),
 
    command("KrbSaveCredentials", ap_set_flag_slot, krb_save_credentials,
      FLAG, "Save and store credentials/tickets retrieved during auth."),
 
-   command("KrbSaveTickets", ap_set_flag_slot, krb_save_credentials,
-     FLAG, "Alias for KrbSaveCredentials."),
-
    command("KrbServiceName", ap_set_string_slot, service_name,
      TAKE1, "Kerberos service name to be used by apache."),
-
-#if 0
-   command("KrbLifetime", ap_set_string_slot, krb_lifetime,
-     TAKE1, "Kerberos ticket lifetime."),
-#endif
 
 #ifdef KRB5
    command("Krb5Keytab", ap_set_file_slot, krb_5_keytab,
      TAKE1, "Location of Kerberos V5 keytab file."),
 
-   command("KrbForwardable", ap_set_flag_slot, krb_forwardable,
-     FLAG, "Credentials retrieved will be flagged as forwardable."),
-
-   command("KrbMethodGSSAPI", ap_set_flag_slot, krb_method_gssapi,
-     FLAG, "Enable GSSAPI authentication."),
+   command("KrbMethodNegotiate", ap_set_flag_slot, krb_method_gssapi,
+     FLAG, "Enable Negotiate authentication method."),
 
    command("KrbMethodK5Pass", ap_set_flag_slot, krb_method_k5pass,
      FLAG, "Enable Kerberos V5 password authentication."),
@@ -165,7 +143,6 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 	kerb_auth_config *rec;
 
 	rec = (kerb_auth_config *) ap_pcalloc(p, sizeof(kerb_auth_config));
-	((kerb_auth_config *)rec)->krb_fail_status = HTTP_UNAUTHORIZED;
 #ifdef KRB5
 	((kerb_auth_config *)rec)->krb_method_k5pass = 1;
 	((kerb_auth_config *)rec)->krb_method_gssapi = 1;
@@ -199,23 +176,6 @@ void log_rerror(const char *file, int line, int level, int status,
    ap_log_rerror(file, line, level, status, r, "%s", errstr);
 #endif
 }
-
-#if 0
-static const char *kerb_set_fail_slot(cmd_parms *cmd, void *struct_ptr,
-					const char *arg)
-{
-	int offset = (int) (long) cmd->info;
-	if (!strncasecmp(arg, "unauthorized", 12))
-		*(int *) ((char *)struct_ptr + offset) = HTTP_UNAUTHORIZED;
-	else if (!strncasecmp(arg, "forbidden", 9))
-		*(int *) ((char *)struct_ptr + offset) = HTTP_FORBIDDEN;
-	else if (!strncasecmp(arg, "declined", 8))
-		*(int *) ((char *)struct_ptr + offset) = DECLINED;
-	else
-		return "KrbAuthFailStatus must be Forbidden, Unauthorized, or Declined.";
-	return NULL;
-}
-#endif
 
 #ifdef KRB4
 /*************************************************************************** 
