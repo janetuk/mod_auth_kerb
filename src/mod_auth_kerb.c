@@ -123,6 +123,7 @@ module AP_MODULE_DECLARE_DATA auth_kerb_module;
 #define MK_TABLE_GET ap_table_get
 #define MK_USER r->connection->user
 #define MK_AUTH_TYPE r->connection->ap_auth_type
+#define PROXYREQ_PROXY STD_PROXY
 #else
 #define MK_POOL apr_pool_t
 #define MK_TABLE_GET apr_table_get
@@ -1112,6 +1113,8 @@ note_kerb_auth_failure(request_rec *r, const kerb_auth_config *conf,
    const char *auth_name = NULL;
    int set_basic = 0;
    char *negoauth_param;
+   const char *header_name = 
+      (r->proxyreq == PROXYREQ_PROXY) ? "Proxy-Authenticate" : "WWW-Authenticate";
 
    /* get the user realm specified in .htaccess */
    auth_name = ap_auth_name(r);
@@ -1121,19 +1124,19 @@ note_kerb_auth_failure(request_rec *r, const kerb_auth_config *conf,
    if (use_krb5 && conf->krb_method_gssapi && negotiate_ret_value != NULL) {
       negoauth_param = (*negotiate_ret_value == '\0') ? "Negotiate" :
 	          ap_pstrcat(r->pool, "Negotiate ", negotiate_ret_value, NULL);
-      ap_table_add(r->err_headers_out, "WWW-Authenticate", negoauth_param);
+      ap_table_add(r->err_headers_out, header_name, negoauth_param);
    }
    if (use_krb5 && conf->krb_method_k5pass) {
-      ap_table_add(r->err_headers_out, "WWW-Authenticate",
-                   ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
+      ap_table_add(r->err_headers_out, header_name,
+		   ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
       set_basic = 1;
    }
 #endif
 
 #ifdef KRB4
    if (use_krb4 && conf->krb_method_k4pass && !set_basic)
-      ap_table_add(r->err_headers_out, "WWW-Authenticate",
-	    	   ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
+      ap_table_add(r->err_headers_out, header_name,
+		  ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
 #endif
 }
 
@@ -1165,8 +1168,11 @@ int kerb_authenticate_user(request_rec *r)
    /* get what the user sent us in the HTTP header */
    auth_line = MK_TABLE_GET(r->headers_in, "Authorization");
    if (!auth_line) {
-      note_kerb_auth_failure(r, conf, use_krb4, use_krb5, "\0");
-      return HTTP_UNAUTHORIZED;
+       auth_line = MK_TABLE_GET(r->headers_in, "Proxy-Authorization");
+       if (!auth_line) {
+               note_kerb_auth_failure(r, conf, use_krb4, use_krb5, "\0");
+               return HTTP_UNAUTHORIZED;
+       }
    }
    auth_type = ap_getword_white(r->pool, &auth_line);
 
