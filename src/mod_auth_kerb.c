@@ -46,7 +46,7 @@
 
 #include "config.h"
 
-#define MODAUTHKERB_VERSION "5.0-rc4"
+#define MODAUTHKERB_VERSION "5.0-rc5"
 
 #include <httpd.h>
 #include <http_config.h>
