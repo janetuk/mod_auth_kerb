@@ -23,4 +23,5 @@ modauthkerb: libspnegokrb5
 
 clean:
 	(cd spnegokrb5 && make clean)
-	$(RM) *.o *.so *.a *.la *.lo *.slo core 
+	$(RM) *.o *.so *.a *.la *.lo *.slo core
+	$(RM) src/*.{o,so,a,la,lo,slo}
