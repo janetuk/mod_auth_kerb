@@ -70,6 +70,8 @@
 
 #ident "$Id$"
 
+#define MODAUTHKERB_VERSION "5.0-rc2"
+
 #ifndef APXS1
 #include "ap_compat.h"
 #include "apr_strings.h"
@@ -83,9 +85,11 @@
 
 #ifdef KRB5
 #include <krb5.h>
-#include <gssapi.h>
-#ifndef HEIMDAL
-#  include <gssapi_generic.h>
+#ifdef HEIMDAL
+#  include <gssapi.h>
+#else
+#  include <gssapi/gssapi.h>
+#  include <gssapi/gssapi_generic.h>
 #  define GSS_C_NT_USER_NAME gss_nt_user_name
 #  define GSS_C_NT_HOSTBASED_SERVICE gss_nt_service_name
 #  define krb5_get_err_text(context,code) error_message(code)
@@ -99,6 +103,7 @@
 #  undef closesocket
 #endif
 #include <krb.h>
+#include <netdb.h> /* gethostbyname() */
 #endif /* KRB4 */
 
 #ifdef APXS1
@@ -1086,8 +1091,17 @@ module MODULE_VAR_EXPORT auth_kerb_module = {
 	NULL				/* [ 1] post read_request handling    */
 };
 #else
+static int
+kerb_init_handler(apr_pool_t *p, apr_pool_t *plog,
+      		  apr_pool_t *ptemp, server_rec *s)
+{
+   ap_add_version_component(p, "mod_auth_kerb/" MODAUTHKERB_VERSION);
+   return OK;
+}
+
 void kerb_register_hooks(apr_pool_t *p)
 {
+   ap_hook_post_config(kerb_init_handler, NULL, NULL, APR_HOOK_MIDDLE);
    ap_hook_check_user_id(kerb_authenticate_user, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
