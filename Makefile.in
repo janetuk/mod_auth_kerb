@@ -21,10 +21,11 @@ install:
 clean:
 	for i in . src spnegokrb5; do \
 		$(RM) $$i/*.{o,so,a,la,lo,slo} core; \
+		$(RM) -rf $$i/.libs; \
 	done
 
 distclean: clean
 	$(RM) config.h config.status Makefile config.log
-	$(RM) -rf autom4te.cache src/.libs spnego/.libs
+	$(RM) -rf autom4te.cache
 
 .PHONY: all install clean distclean
