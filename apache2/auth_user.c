@@ -1,4 +1,5 @@
 int kerb_authenticate_user(request_rec *r) {
+	const char *name;		/* AuthName specified */
 	const char *type;		/* AuthType specified */
 	int KerberosV5 = 0;		/* Kerberos V5 check enabled */
 	int KerberosV4 = 0;		/* Kerberos V4 check enabled */
@@ -31,32 +32,24 @@ int kerb_authenticate_user(request_rec *r) {
 		return DECLINED;
 	}
 
-	if (!ap_auth_name(r)) {
+	name = ap_auth_name(r);
+	if (!name) {
 		ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR,
 			0, r, "need AuthName: %s", r->uri);
 		return HTTP_INTERNAL_SERVER_ERROR;
 	}
 
 	if (!auth_line) {
-		ap_note_basic_auth_failure(r);
+		apr_table_set(r->err_headers_out, "WWW-Authenticate",
+			(char *)ap_pstrcat(r->pool, "Basic realm=\"", name, "\"", NULL));
 		return HTTP_UNAUTHORIZED;
 	}
 
-	if (strcasecmp(ap_getword(r->pool, &auth_line, ' '), "Basic")) {
-		/* Client tried to authenticate using wrong auth scheme */
-		ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, 0, r,
-                      "client used wrong authentication scheme: %s", r->uri);
-		ap_note_basic_auth_failure(r);
-		return HTTP_UNAUTHORIZED;
-	}
-
-	while (*auth_line == ' ' || *auth_line == '\t') {
-		auth_line++;
-	}
-
+	type = ap_getword_white(r->pool, &auth_line);
 	t = ap_pbase64decode(r->pool, auth_line);
 	r->user = ap_getword_nulls(r->pool, &t, ':');
-	sent_pw = t;
+	r->ap_auth_type = "Kerberos";
+	sent_pw = ap_getword_white(r->pool, &t);
 
 #ifdef KRB5
 	if (KerberosV5) {
