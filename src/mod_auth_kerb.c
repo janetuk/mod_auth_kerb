@@ -1,5 +1,5 @@
 /*
- * Daniel Kouril <kouril@users.sourceforge.org>
+ * Daniel Kouril <kouril@users.sourceforge.net>
  *
  * Source and Documentation can be found at:
  * http://modauthkerb.sourceforge.net/
