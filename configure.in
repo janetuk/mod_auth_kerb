@@ -119,33 +119,44 @@ if test "x$with_krb5" != "xno" ; then
      AC_DEFINE(KRB5)
 
      # check for Heimdal
+     have_heimdal=""
      AC_MSG_CHECKING(whether we are using Heimdal)
      ac_save_CFLAGS="$CFLAGS"
      CFLAGS="$KRB5_CPPFLAGS"
      AC_TRY_COMPILE([#include <krb5.h>],
 		    [ char *tmp = heimdal_version; ],
 		    [ AC_MSG_RESULT(yes)
-		      AC_DEFINE(HEIMDAL) ],
+		      AC_DEFINE(HEIMDAL) ]
+		      have_heimdal=yes,
 		    [ AC_MSG_RESULT(no) ])
      CFLAGS="$ac_save_CFLAGS"
 
-     SPNEGO_SRCS="\
-	spnegokrb5/asn1_MechType.c         \
-        spnegokrb5/asn1_MechTypeList.c     \
-        spnegokrb5/asn1_ContextFlags.c     \
-        spnegokrb5/asn1_NegTokenInit.c     \
-        spnegokrb5/asn1_NegTokenTarg.c     \
-        spnegokrb5/der_get.c               \
-        spnegokrb5/der_put.c               \
-        spnegokrb5/der_free.c              \
-        spnegokrb5/der_length.c            \
-        spnegokrb5/der_copy.c              \
-        spnegokrb5/timegm.c                \
-        spnegokrb5/init_sec_context.c      \
-        spnegokrb5/accept_sec_context.c    \
-        spnegokrb5/encapsulate.c           \
-        spnegokrb5/decapsulate.c           \
-        spnegokrb5/external.c"
+     if test -n "$have_heimdal"; then
+	SPNEGO_SRCS="\
+		spnegokrb5/init_sec_context.c      \
+		spnegokrb5/accept_sec_context.c    \
+		spnegokrb5/encapsulate.c           \
+		spnegokrb5/decapsulate.c           \
+		spnegokrb5/external.c"
+     else
+	SPNEGO_SRCS="\
+		spnegokrb5/asn1_MechType.c         \
+        	spnegokrb5/asn1_MechTypeList.c     \
+        	spnegokrb5/asn1_ContextFlags.c     \
+        	spnegokrb5/asn1_NegTokenInit.c     \
+        	spnegokrb5/asn1_NegTokenTarg.c     \
+        	spnegokrb5/der_get.c               \
+        	spnegokrb5/der_put.c               \
+        	spnegokrb5/der_free.c              \
+        	spnegokrb5/der_length.c            \
+        	spnegokrb5/der_copy.c              \
+        	spnegokrb5/timegm.c                \
+        	spnegokrb5/init_sec_context.c      \
+        	spnegokrb5/accept_sec_context.c    \
+        	spnegokrb5/encapsulate.c           \
+        	spnegokrb5/decapsulate.c           \
+        	spnegokrb5/external.c"
+     fi
   fi
 fi
 AC_SUBST(KRB5_CPPFLAGS)
