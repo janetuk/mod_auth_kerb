@@ -92,16 +92,24 @@ create a keytab file. Full description of the ktpass.exe command can be found
 at http://support.microsoft.com/default.aspx?scid=kb;en-us;324144.
 
 ktpass -out c:\apache.ktab -princ HTTP/server.name@REALM.NAME 
-       -pass account_password -mapuser httpd_servername
+       -pass account_password -mapuser httpd_servername -crypto DES-CBC-MD5
 
 In the above the c:\apache.ktab is the name of the created keytab file,
 account_passwored is the password you set for the user account and
-httpd_servername is the name of the user account.
+httpd_servername is the name of the user account. The DES-CBC-MD5 encryption
+is needed to get Heimdal to work with Microsoft KDC, MIT Kerberos does not
+seem to need it but it does not hurt either. In fact, RFC1510 discourages
+using DES-CBC-CRC (default in Win2k ktpass.exe) so it's probably better to
+use DES-CBC-MD5 in all cases.
 
 You need to copy the keytab file to your web server in a secure way to avoid
-revealing the server key(s). Make sure that the keytab file is owned by the
-apache user and only readable to this user (i.e. the permissions are 600).
+revealing the server key(s). Note that the copy needs to be done in binary
+mode to avoid corrupting the file. Make sure that the keytab file is owned by
+the apache user and only readable to this user (i.e. the permissions are 600).
 After copying the keytab verify the content using the ktutil tool.
+
+See http://www.grolmsnet.de/kerbtut for more information about using
+mod_auth_kerb with Windows KDC.
 
 4. Verifying krb5 on the server host
 ------------------------------------
@@ -141,11 +149,15 @@ README.
 For password based authentication any browser supporting the Basic HTTP
 authentication method can be used without any changes. In order to use
 ticket based authentication (Negotiate) you will need either MS Internet
-Explorer 5.0+ running on Win2000 SP2 (or greater) or Mozilla with the
-Negotiateauth extension (available in 1.7rc2 and greater).
+Explorer 5.0+ running on Win2000 SP2 (or later) or Mozilla with the
+Negotiateauth extension (available in 1.7beta and later).
 
 Internet Explorer
 -----------------
+(TBA:
+Configuring Windows Machine to use Unix KDC
+http://www.microsoft.com/windows2000/techinfo/planning/security/kerbsteps.asp
+)
 To make the Negotiate authentication work the web server hostname  must be
 in Internet Explorer "Local Intranet" security zone and the "Windows
 Integrated Authentication" must be enabled in the IE advanced options.
@@ -153,10 +165,18 @@ Integrated Authentication" must be enabled in the IE advanced options.
 Mozilla
 -------
 TBD
-(First make sure your Mozilla distribution contains the Negotiateauth component
-check libnegotiate.so
+First make sure your Mozilla distribution contains the Negotiateauth component
+(libnegotiateauth.so on Unix, negotiateauth.dll on Windows). Generally this is
+included in versions 1.7beta and later on Unix platforms including Mac OSX, maybe
+1.8 and later on Windows.)
+
+The web server must be listed in preference network.negotiate-auth.trusted-uris.
+Easiest way to do this is to type about:config in the URL bar and change the setting
+on the resulting settings list. If this preference is not on the list, it probably
+means that your version of Mozilla does not support Negotiate auth.
+
 debugging
-Using with heimdal)
+Using with Heimdal
 
 6. Access control
 -----------------
