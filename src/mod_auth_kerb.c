@@ -871,6 +871,9 @@ int authenticate_user_krb5pwd(request_rec *r,
    ret = OK;
 
 end:
+   log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	      "kerb_authenticate_user_krb5pwd ret=%d user=%s authtype=%s",
+	      ret, (MK_USER)?MK_USER:"(NULL)", MK_AUTH_TYPE);
    if (client)
       krb5_free_principal(kcontext, client);
    if (ccache)
@@ -1294,6 +1297,10 @@ int kerb_authenticate_user(request_rec *r)
 
    /* get the type specified in .htaccess */
    type = ap_auth_type(r);
+
+   log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	      "kerb_authenticate_user entered with user %s and auth_type %s",
+	      (MK_USER)?MK_USER:"(NULL)",type?type:"(NULL)");
 
    if (type && strcasecmp(type, "Kerberos") == 0)
       use_krb5 = use_krb4 = 1;
