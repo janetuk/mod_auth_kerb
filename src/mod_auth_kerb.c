@@ -226,7 +226,7 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 
 	rec = (kerb_auth_config *) ap_pcalloc(p, sizeof(kerb_auth_config));
         ((kerb_auth_config *)rec)->krb_verify_kdc = 1;
-	((kerb_auth_config *)rec)->krb_service_name = "khttp";
+	((kerb_auth_config *)rec)->krb_service_name = "HTTP";
 	((kerb_auth_config *)rec)->krb_authoritative = 1;
 #ifdef KRB5
 	((kerb_auth_config *)rec)->krb_method_k5pass = 1;
