@@ -198,11 +198,7 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 }
 
 
-
-
-/*************************************************************************** 
- Auth Configuration Parsers
- ***************************************************************************/
+#if 0
 static const char *kerb_set_fail_slot(cmd_parms *cmd, void *struct_ptr,
 					const char *arg)
 {
@@ -217,6 +213,7 @@ static const char *kerb_set_fail_slot(cmd_parms *cmd, void *struct_ptr,
 		return "KrbAuthFailStatus must be Forbidden, Unauthorized, or Declined.";
 	return NULL;
 }
+#endif
 
 
 #ifndef HEIMDAL
@@ -606,7 +603,7 @@ int kerb4_password_validate(request_rec *r, const char *user, const char *pass)
 /*************************************************************************** 
  GSSAPI Validation
  ***************************************************************************/
-#ifdef GSSAPI
+#ifdef KRB5
 static const char *
 get_gss_error(pool *p, OM_uint32 error_status, char *prefix)
 {
@@ -852,7 +849,7 @@ end:
 
   return ret;
 }
-#endif /* GSSAPI */
+#endif /* KRB5 */
 
 
 static void
@@ -895,8 +892,23 @@ int kerb_authenticate_user(request_rec *r)
    /* get the type specified in .htaccess */
    type = ap_auth_type(r);
 
-   if (!conf->krb_auth_enable &&
-       (type == NULL || (strncasecmp(type, "Kerberos", 8) != 0)))
+#ifdef KRB5
+   if (type != NULL && strcasecmp(type, "KerberosV5") == 0) {
+      ap_log_rerror(APLOG_MARK, APLOG_WARNING, r,
+	    "The use of KerberosV5 in AuthType is obsolete, please consider using the AuthKerberos option");
+      conf->krb_auth_enable = 1;
+   }
+#endif
+
+#ifdef KRB4
+   if (type != NULL && strcasecmp(type, "KerberosV4") == 0) {
+      ap_log_rerror(APLOG_MARK, APLOG_WARNING, r,
+	    "The use of KerberosV4 in AuthType is obsolete, please consider using the AuthKerberos option");
+      conf->krb_auth_enable = 1;
+   }
+#endif
+
+   if (!conf->krb_auth_enable)
       return DECLINED;
 
    /* get what the user sent us in the HTTP header */
@@ -908,8 +920,6 @@ int kerb_authenticate_user(request_rec *r)
    auth_type = ap_getword_white(r->pool, &auth_line);
 
    ret = HTTP_UNAUTHORIZED;
-
-   /* XXX Support for AuthType=Kerberos */
 
 #ifdef KRB5
    if (conf->krb_method_gssapi &&
