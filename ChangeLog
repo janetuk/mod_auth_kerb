@@ -1,3 +1,15 @@
+2003-06-10  Daniel Henninger  <jadestorm@users.sourceforge.net>
+
+	* src/mod_auth_kerb.c:
+	Reworked the AuthType-esque directives.
+	Made KrbAuthRealm(s) be... more correct.
+
+2003-06-03  Daniel Henninger  <jadestorm@users.sourceforge.net>
+
+	* src/mod_auth_kerb.c:
+	Removed KrbDefaultRealm, replaced with KrbAuthRealms.
+	Working on full multi-realm support as per request 738054.
+
 2003-06-02  Daniel Henninger  <jadestorm@users.sourceforge.net>
 
 	* src/mod_auth_kerb.c:

@@ -30,8 +30,11 @@ module AP_MODULE_DECLARE_DATA kerb_auth_module;
 
 #ifdef KRB5
 #include <krb5.h>
-#include <gssapi.h>
 #endif /* KRB5 */
+
+#ifdef GSSAPI
+#include <gssapi.h>
+#endif /* GSSAPI */
 
 #ifdef KRB4
 #include <krb.h>
@@ -74,22 +77,29 @@ module AP_MODULE_DECLARE_DATA kerb_auth_module;
  Auth Configuration Structure
  ***************************************************************************/
 typedef struct {
-	char *krb_auth_type;
 #ifdef KRB4
 	char *krb_4_srvtab;
 #endif /* KRB4 */
 #ifdef KRB5
 	char *krb_5_keytab;
 #endif /* KRB5 */
+	int krb_auth_enable;
+	char *krb_auth_realms;
 	int krb_authoritative;
-	char *krb_default_realm;
 	int krb_fail_status;
 	char *krb_force_instance;
 #ifdef KRB5
 	int krb_forwardable;
 #endif /* KRB5 */
 	char *krb_lifetime;
+#ifdef GSSAPI
+	int krb_method_gssapi;
+#endif /* GSSAPI */
+#ifdef KRB4
+	int krb_method_k4pass;
+#endif /* KRB4 */
 #ifdef KRB5
+	int krb_method_k5pass;
 	char *krb_renewable;
 #endif /* KRB5 */
 	int krb_save_credentials;
@@ -97,6 +107,13 @@ typedef struct {
 	char *service_name;
 } kerb_auth_config;
 
+
+
+
+/*************************************************************************** 
+ GSSAPI Support Initialization
+ ***************************************************************************/
+#ifdef GSSAPI
 typedef struct {
    gss_ctx_id_t context;
    gss_cred_id_t server_creds;
@@ -118,6 +135,8 @@ cleanup_gss_connection(void *data)
    if (gss_conn->server_creds != GSS_C_NO_CREDENTIAL)
       gss_release_cred(&minor_status, &gss_conn->server_creds);
 }
+#endif /* GSSAPI */
+
 
 
 
@@ -130,7 +149,19 @@ static void *kerb_dir_config(MK_POOL *p, char *d)
 	rec = (void *) ap_pcalloc(p, sizeof(kerb_auth_config));
 	((kerb_auth_config *)rec)->krb_fail_status = HTTP_UNAUTHORIZED;
 	((kerb_auth_config *)rec)->krb_authoritative = 0;
-	((kerb_auth_config *)rec)->krb_auth_type = MK_PSTRDUP(p, "None");
+#ifdef GSSAPI
+	((kerb_auth_config *)rec)->krb_method_gssapi = 0;
+#endif /* GSSAPI */
+#ifdef KRB4
+	((kerb_auth_config *)rec)->krb_method_k4pass = 1;
+#endif /* KRB4 */
+#ifdef KRB5
+	((kerb_auth_config *)rec)->krb_method_k5pass = 1;
+#ifdef KRB4
+	((kerb_auth_config *)rec)->krb_method_k4pass = 0;
+#endif /* KRB4 */
+#endif /* KRB5 */
+	((kerb_auth_config *)rec)->krb_auth_realms = "";
 	return rec;
 }
 
@@ -155,33 +186,6 @@ static const char *kerb_set_fail_slot(cmd_parms *cmd, void *struct_ptr,
 	return NULL;
 }
 
-/* these are either char *struct_ptr, char *arg or void *struct_ptr, const char *arg */
-static const char *kerb_set_type_slot(cmd_parms *cmd, void *struct_ptr,
-					const char *arg)
-{
-	int offset = (int) (long) cmd->info;
-#ifdef KRB5
-	if (!strncasecmp(arg, "v5", 2))
-		*(char **) ((char *)struct_ptr + offset) = MK_PSTRDUP(cmd->pool, "KerberosV5");
-	else
-#endif /* KRB5 */
-#ifdef KRB4
-	if (!strncasecmp(arg, "v4", 2))
-		*(char **) ((char *)struct_ptr + offset) = MK_PSTRDUP(cmd->pool, "KerberosV4");
-	else
-#endif /* KRB4 */
-	if (!strncasecmp(arg, "dualv5v4", 8))
-		*(char **) ((char *)struct_ptr + offset) = MK_PSTRDUP(cmd->pool, "KerberosDualV5V4");
-	else if
-	   (!strncasecmp(arg, "dualv4v5", 8))
-		*(char **) ((char *)struct_ptr + offset) = MK_PSTRDUP(cmd->pool, "KerberosDualV4V5");
-#if defined(KRB4) && defined(KRB5)
-#endif /* KRB4 && KRB5 */
-	else
-		return "AuthKerberos must be V5, V4, DualV4V5, or DualV5V4.";
-	return NULL;
-}
-
 
 
 
@@ -192,10 +196,10 @@ static const char *kerb_set_type_slot(cmd_parms *cmd, void *struct_ptr,
 command_rec kerb_auth_cmds[] = {
 	{
 		"AuthKerberos",
-		kerb_set_type_slot,
-		(void*)XtOffsetOf(kerb_auth_config, krb_auth_type),
+		ap_set_flag_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_auth_enable),
 		OR_AUTHCFG,
-		TAKE1,
+		FLAG,
 		"Permit Kerberos auth without AuthType requirement."
 	},
 
@@ -231,12 +235,12 @@ command_rec kerb_auth_cmds[] = {
 	},
 
 	{
-		"KrbDefaultRealm",
+		"KrbAuthRealm",
 		ap_set_string_slot,
-		(void*)XtOffsetOf(kerb_auth_config, krb_default_realm),
+		(void*)XtOffsetOf(kerb_auth_config, krb_auth_realms),
 		OR_AUTHCFG,
-		TAKE1,
-		"Default realm to authenticate users against."
+		ITERATE,
+		"Realms to attempt authentication against (can be multiple)."
 	},
 
 	{
@@ -277,7 +281,38 @@ command_rec kerb_auth_cmds[] = {
 		"Lifetime of tickets retrieved."
 	},
 
+#ifdef GSSAPI
+	{
+		"KrbMethodGSSAPI",
+		ap_set_flag_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_method_gssapi),
+		OR_AUTHCFG,
+		FLAG,
+		"Enable GSSAPI authentication."
+	},
+#endif /* GSSAPI */
+
+#ifdef KRB4
+	{
+		"KrbMethodK4Pass",
+		ap_set_flag_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_method_k4pass),
+		OR_AUTHCFG,
+		FLAG,
+		"Enable Kerberos V4 password authentication."
+	},
+#endif /* KRB4 */
+
 #ifdef KRB5
+	{
+		"KrbMethodK5Pass",
+		ap_set_flag_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_method_k5pass),
+		OR_AUTHCFG,
+		FLAG,
+		"Enable Kerberos V5 password authentication."
+	},
+
 	{
 		"KrbRenewable",
 		ap_set_string_slot,
@@ -320,10 +355,10 @@ command_rec kerb_auth_cmds[] = {
 #else
 #ifdef APXS2
 static const command_rec kerb_auth_cmds[] = {
-	AP_INIT_TAKE1(
+	AP_INIT_FLAG(
 		"AuthKerberos",
 		kerb_set_type_slot,
-		(void*)APR_XtOffsetOf(kerb_auth_config, krb_auth_type),
+		(void*)APR_XtOffsetOf(kerb_auth_config, krb_auth_enable),
 		OR_AUTHCFG,
 		"Permit Kerberos auth without AuthType requirement."
 	),
@@ -356,12 +391,12 @@ static const command_rec kerb_auth_cmds[] = {
 		"Refuse to pass request down to lower modules."
 	),
 
-	AP_INIT_TAKE1(
-		"KrbDefaultRealm",
+	AP_INIT_ITERATE(
+		"KrbAuthRealm",
 		ap_set_string_slot,
-		(void*)APR_XtOffsetOf(kerb_auth_config, krb_default_realm),
+		(void*)APR_XtOffsetOf(kerb_auth_config, krb_auth_realms),
 		OR_AUTHCFG,
-		"Default realm to authenticate users against."
+		"Realm to attempt authentication against (can be multiple)."
 	),
 
 	AP_INIT_TAKE1(
@@ -398,7 +433,35 @@ static const command_rec kerb_auth_cmds[] = {
 		"Lifetime of tickets retrieved."
 	),
 
+#ifdef GSSAPI
+	AP_INIT_FLAG(
+		"KrbMethodGSSAPI",
+		ap_set_flag_slot,
+		(void*)APR_XtOffsetOf(kerb_auth_config, krb_method_gssapi),
+		OR_AUTHCFG,
+		"Enable GSSAPI authentication."
+	),
+#endif /* GSSAPI */
+
+#ifdef KRB4
+	AP_INIT_FLAG(
+		"KrbMethodK4Pass",
+		ap_set_flag_slot,
+		(void*)APR_XtOffsetOf(kerb_auth_config, krb_method_k4pass),
+		OR_AUTHCFG,
+		"Enable Kerberos V4 password authentication."
+	),
+#endif /* KRB4 */
+
 #ifdef KRB5
+	AP_INIT_FLAG(
+		"KrbMethodK5Pass",
+		ap_set_flag_slot,
+		(void*)APR_XtOffsetOf(kerb_auth_config, krb_method_k5pass),
+		OR_AUTHCFG,
+		"Enable Kerberos V5 password authentication."
+	),
+
 	AP_INIT_TAKE1(
 		"KrbRenewable",
 		ap_set_string_slot,
@@ -444,14 +507,18 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
       		 krb5_ccache ccache, const char *password, krb5_boolean secure,
 		 const char *service)
 {
-   int problem;
+   int ret;
+   krb5_context kcontext;
+   krb5_principal server, client;
    krb5_timestamp now;
    krb5_creds my_creds;
+   krb5_flags options = 0;
+   krb5_principal me = NULL;
    krb5_data tgtname = {
       0,
       KRB5_TGS_NAME_SIZE,
       KRB5_TGS_NAME
-   }
+   };
 
    memset((char *)&my_creds, 0, sizeof(my_creds));
    my_creds.client = principal;
@@ -477,7 +544,7 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
    */
 
    ret = krb5_get_in_tkt_with_password(kcontext, options, 0, NULL, 0,
-	 			       pass, ccache, &my_creds, 0);
+	 			       password, ccache, &my_creds, 0);
    if (ret) {
    	return ret;
    }
@@ -645,6 +712,7 @@ int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
 	   lifetime = atoi(conf->krb_lifetime);
 	}
 
+/* ????
 	code = krb5_cc_gen_new(kcontext, &krb5_mcc_ops, &ccache);
 	if (code) {
 	   snprintf(errstr, sizeof(errstr), "krb5_cc_gen_new(): %.100s",
@@ -653,8 +721,9 @@ int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
 	   ret = SERVER_ERROR;
 	   goto end;
 	}
+*/
 
-	realms = conf->krb_default_realm;
+	realms = conf->krb_auth_realms;
 	do {
 	   code = 0;
 	   if (realms) {
@@ -794,6 +863,13 @@ int kerb4_password_validate(request_rec *r, const char *user, const char *pass)
 }
 #endif /* KRB4 */
 
+
+
+
+/*************************************************************************** 
+ GSSAPI Validation
+ ***************************************************************************/
+#ifdef GSSAPI
 static int
 get_gss_creds(request_rec *r,
               kerb_auth_config *conf,
@@ -1013,6 +1089,9 @@ end:
 
   return ret;
 }
+#endif /* GSSAPI */
+
+
 
 
 /*************************************************************************** 
@@ -1022,9 +1101,6 @@ int kerb_authenticate_user(request_rec *r)
 {
 	const char *name;		/* AuthName specified */
 	const char *type;		/* AuthType specified */
-	int KerberosV5 = 0;		/* Kerberos V5 check enabled */
-	int KerberosV4 = 0;		/* Kerberos V4 check enabled */
-	int KerberosV4first = 0;	/* Kerberos V4 check first */
 	const char *sent_pw;		/* Password sent by browser */
 	int res;			/* Response holder */
 	int retcode;			/* Return code holder */
@@ -1040,38 +1116,8 @@ int kerb_authenticate_user(request_rec *r)
 
 	type = ap_auth_type(r);
 
-	if (type != NULL) {
-#ifdef KRB5
-		if ((strncasecmp(type, "KerberosV5", 10) == 0) ||
-		    (strncasecmp(conf->krb_auth_type, "KerberosV5", 10) == 0)) {
-			KerberosV5 = 1;
-		}
-#endif /* KRB5 */
-
-#ifdef KRB4
-		if ((strncasecmp(type, "KerberosV4", 10) == 0) ||
-		    (strncasecmp(conf->krb_auth_type, "KerberosV4", 10) == 0)) {
-			KerberosV4 = 1;
-		}
-#endif /* KRB4 */
-
-#if defined(KRB5) && defined(KRB4)
-		if ((strncasecmp(type, "KerberosDualV5V4", 15) == 0) ||
-		    (strncasecmp(conf->krb_auth_type, "KerberosDualV5V4", 15) == 0)) {
-			KerberosV5 = 1;
-			KerberosV4 = 1;
-		}
-
-		if ((strncasecmp(type, "KerberosDualV4V5", 15) == 0) ||
-		    (strncasecmp(conf->krb_auth_type, "KerberosDualV4V5", 15) == 0)) {
-			KerberosV5 = 1;
-			KerberosV4 = 1;
-			KerberosV4first = 1;
-		}
-#endif /* KRB5 && KRB4 */
-	}
-
-	if (!KerberosV4 && !KerberosV5) {
+	if (!conf->krb_auth_enable &&
+	    (type == NULL || (strncasecmp(type, "Kerberos", 8) != 0))) {
 		if (conf->krb_authoritative) {
 			return HTTP_UNAUTHORIZED;
 		}
@@ -1100,8 +1146,23 @@ int kerb_authenticate_user(request_rec *r)
 
 	retcode = DECLINED;
 
+#ifdef GSSAPI
+	if (conf->krb_method_gssapi && retcode != OK) {
+/*
+ Whatever you need to do here  =)
+		MK_AUTH_TYPE = "GSSAPI";
+		if (kerb5_password_validate(r, MK_USER, sent_pw)) {
+			retcode = OK;
+		}
+		else {
+			retcode = conf->krb_fail_status;
+		}
+*/
+	}
+#endif /* GSSAPI */
+
 #ifdef KRB5
-	if (KerberosV5 && !KerberosV4first && retcode != OK) {
+	if (conf->krb_method_k5pass && retcode != OK) {
 		MK_AUTH_TYPE = "KerberosV5";
 		if (kerb5_password_validate(r, MK_USER, sent_pw)) {
 			retcode = OK;
@@ -1114,7 +1175,7 @@ int kerb_authenticate_user(request_rec *r)
 #endif /* KRB5 */
 
 #ifdef KRB4
-	if (KerberosV4 && retcode != OK) {
+	if (conf->krb_method_k4pass && retcode != OK) {
 		MK_AUTH_TYPE = "KerberosV4";
 		if (kerb4_password_validate(r, MK_USER, sent_pw)) {
 			retcode = OK;
@@ -1124,18 +1185,6 @@ int kerb_authenticate_user(request_rec *r)
 		}
 	}
 #endif /* KRB4 */
-
-#if defined(KRB5) && defined(KRB4)
-	if (KerberosV5 && KerberosV4first && retcode != OK) {
-		MK_AUTH_TYPE = "KerberosV5";
-		if (kerb5_password_validate(r, MK_USER, sent_pw)) {
-			retcode = OK;
-		}
-		else {
-			retcode = conf->krb_fail_status;
-		}
-	}
-#endif /* KRB5 && KRB4 */
 
 	if (conf->krb_authoritative && retcode == DECLINED) {
 		return HTTP_UNAUTHORIZED;

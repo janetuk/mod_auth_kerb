@@ -1,15 +1,23 @@
-dnl ####################
-dnl ## Initialization ##
-dnl ####################
+dnl Process this file with autoconf to produce a configure script.
 AC_INIT(Apache Kerberos Module,
         alpha2,
         modauthkerb-developers@lists.sourceforge.net,
         mod_auth_kerb)
+AC_CANONICAL_HOST
 
 
-dnl ####################
-dnl ## Config Options ##
-dnl ####################
+dnl OS specific options.
+case "$host" in
+*-*-netbsd*)
+	need_dash_r=1
+	;;
+*-*-solaris*)
+	need_dash_r=1
+	;;
+esac
+
+
+dnl Custom args we care about.
 AC_ARG_WITH(api,
 [  --with-api=API                      api to use (apache1, apache2)],
 [
@@ -50,18 +58,11 @@ AC_ARG_WITH(static,
 AC_ARG_WITH(krb5,
 [  --with-krb5=DIR                     path to Kerberos 5 install],
 [
-	if test -d $withval ; then
-		CFLAGS="$CFLAGS -I$withval/include -I$withval/include/kerberosIV"
-		CPPFLAGS="$CPPFLAGS -I$withval/include -I$withval/include/kerberosIV"
-		LDFLAGS="$LDFLAGS -L$withval/lib"
-
-		case "$host" in
-			*-solaris*)
-				LDFLAGS="$LDFLAGS -R$withval/lib"
-				;;
-		esac
-	else
-		AC_ERROR(Specified Kerberos 5 directory doesn't exist.)
+	CFLAGS="$CFLAGS -I$withval/include -I$withval/include/kerberosIV"
+	CPPFLAGS="$CPPFLAGS -I$withval/include -I$withval/include/kerberosIV"
+	LDFLAGS="$LDFLAGS -L$withval/lib"
+	if test -n "${need_dash_r}"; then
+		LDFLAGS="$LDFLAGS -R$withval/lib"
 	fi
 ]
 )
@@ -69,28 +70,17 @@ AC_ARG_WITH(krb5,
 AC_ARG_WITH(krb5-include,
 [    --with-krb5-include=DIR           include path to Kerberos 5 install],
 [
-	if test -d $withval ; then
-		CFLAGS="$CFLAGS -I$withval -I$withval/include/kerberosIV"
-		CPPFLAGS="$CPPFLAGS -I$withval -I$withval/include/kerberosIV"
-	else
-		AC_ERROR(Specified Kerberos 5 directory doesn't exist.)
-	fi
+	CFLAGS="$CFLAGS -I$withval -I$withval/kerberosIV"
+	CPPFLAGS="$CPPFLAGS -I$withval -I$withval/kerberosIV"
 ]
 )
 
 AC_ARG_WITH(krb5-lib,
 [    --with-krb5-lib=DIR               lib path to Kerberos 5 install],
 [
-	if test -d $withval ; then
-		LDFLAGS="$LDFLAGS -L$withval"
-
-		case "$host" in
-			*-solaris*)
-				LDFLAGS="$LDFLAGS -R$withval"
-				;;
-		esac
-	else
-		AC_ERROR(Specified Kerberos 5 directory doesn't exist.)
+	LDFLAGS="$LDFLAGS -L$withval"
+	if test -n "${need_dash_r}"; then
+		LDFLAGS="$LDFLAGS -R$withval"
 	fi
 ]
 )
@@ -107,18 +97,11 @@ AC_ARG_ENABLE(krb5,
 AC_ARG_WITH(krb4,
 [  --with-krb4=DIR                     path to Kerberos 4 install],
 [
-	if test -d $withval ; then
-		CFLAGS="$CFLAGS -I$withval/include"
-		CPPFLAGS="$CPPFLAGS -I$withval/include"
-		LDFLAGS="$LDFLAGS -L$withval/lib"
-
-		case "$host" in
-			*-solaris*)
-				LDFLAGS="$LDFLAGS -R$withval/lib"
-				;;
-		esac
-	else
-		AC_ERROR(Specified Kerberos 4 directory doesn't exist.)
+	CFLAGS="$CFLAGS -I$withval/include"
+	CPPFLAGS="$CPPFLAGS -I$withval/include"
+	LDFLAGS="$LDFLAGS -L$withval/lib"
+	if test -n "${need_dash_r}"; then
+		LDFLAGS="$LDFLAGS -R$withval/lib"
 	fi
 ]
 )
@@ -126,28 +109,17 @@ AC_ARG_WITH(krb4,
 AC_ARG_WITH(krb4-include,
 [    --with-krb4-include=DIR           include path to Kerberos 4 install],
 [
-	if test -d $withval ; then
-		CFLAGS="$CFLAGS -I$withval"
-		CPPFLAGS="$CPPFLAGS -I$withval"
-	else
-		AC_ERROR(Specified Kerberos 4 directory doesn't exist.)
-	fi
+	CFLAGS="$CFLAGS -I$withval"
+	CPPFLAGS="$CPPFLAGS -I$withval"
 ]
 )
 
 AC_ARG_WITH(krb4-lib,
 [    --with-krb4-lib=DIR               lib path to Kerberos 4 install],
 [
-	if test -d $withval ; then
-		LDFLAGS="$LDFLAGS -L$withval"
-
-		case "$host" in
-			*-solaris*)
-				LDFLAGS="$LDFLAGS -R$withval"
-				;;
-		esac
-	else
-		AC_ERROR(Specified Kerberos 4 directory doesn't exist.)
+	LDFLAGS="$LDFLAGS -L$withval"
+	if test -n "${need_dash_r}"; then
+		LDFLAGS="$LDFLAGS -R$withval"
 	fi
 ]
 )
@@ -161,11 +133,50 @@ AC_ARG_ENABLE(krb4,
 ],
 )
 
+AC_ARG_WITH(gssapi,
+[  --with-gssapi=DIR                   path to GSSAPI install],
+[
+	CFLAGS="$CFLAGS -I$withval/include -I$withval/include/gssapi"
+	CPPFLAGS="$CPPFLAGS -I$withval/include -I$withval/include/gssapi"
+	LDFLAGS="$LDFLAGS -L$withval/lib"
+	if test -n "${need_dash_r}"; then
+		LDFLAGS="$LDFLAGS -R$withval/lib"
+	fi
+]
+)
 
-dnl ####################
-dnl ## Program Checks ##
-dnl ####################
+AC_ARG_WITH(gssapi-include,
+[    --with-gssapi-include=DIR         include path to GSSAPI install],
+[
+	CFLAGS="$CFLAGS -I$withval -I$withval/gssapi"
+	CPPFLAGS="$CPPFLAGS -I$withval -I$withval/gssapi"
+]
+)
+
+AC_ARG_WITH(gssapi-lib,
+[    --with-gssapi-lib=DIR             lib path to GSSAPI install],
+[
+	LDFLAGS="$LDFLAGS -L$withval"
+	if test -n "${need_dash_r}"; then
+		LDFLAGS="$LDFLAGS -R$withval"
+	fi
+]
+)
+
+AC_ARG_ENABLE(gssapi,
+[  --disable-gssapi                    force disabling of gssapi support],
+[
+	if test "$enable_gssapi" = "no" ; then
+		ac_gssapi_disable="yes"
+	fi
+]
+)
+
+
+
+dnl Checks for programs.
 AC_PROG_CC
+AC_PROG_MAKE_SET
 if test -z "$ac_static" ; then
 	AC_PATH_PROG(APXS, apxs)
 	if test -z "$APXS" ; then
@@ -175,9 +186,7 @@ if test -z "$ac_static" ; then
 fi
 
 
-dnl ###############
-dnl ## Libraries ##
-dnl ###############
+dnl Checks for libraries.
 if test -z "$ac_krb5_disable" ; then
 	AC_CHECK_LIB(krb5, krb5_get_in_tkt_with_password, [
 		ac_krb5="yes"
@@ -199,7 +208,7 @@ if test -z "$ac_krb5_disable" ; then
 				AC_CHECK_LIB(krb4, krb_get_pw_in_tkt, [
 					ac_krb4="yes"
 					ac_krbdefs="$ac_krbdefs -DKRB4"
-					ac_krblibs="$ac_krblibs -lkrb4 $ac_krblibs"
+					ac_krblibs="-lkrb4 $ac_krblibs"
 				],, $ac_krblibs)
 			fi
 		fi
@@ -219,9 +228,7 @@ if test -z "$ac_krb4" -a -z "$ac_krb5" ; then
 fi
 
 
-dnl #############
-dnl ## Headers ##
-dnl #############
+dnl Checks for header files.
 if test -n "$ac_krb5" ; then
 	AC_CHECK_HEADERS(krb5.h, [
 		ac_foundkrb5="yes"
@@ -251,19 +258,7 @@ if test -z "$ac_krb4" -a -z "$ac_krb5" ; then
 fi
 
 
-dnl ##############
-dnl ## Typedefs ##
-dnl ##############
-
-
-dnl ################
-dnl ## Structures ##
-dnl ################
-
-
-dnl ##############################
-dnl ## Compiler Characteristics ##
-dnl ##############################
+dnl Checks for typedefs, structures, and compiler characteristics.
 if test -z "$ac_api" ; then
 	if test -n "`$APXS -q bindir 2> /dev/null`" ; then
 		echo "API autodetected to be Apache 2.*"
@@ -277,27 +272,16 @@ if test -z "$ac_api" ; then
 fi
 
 
-dnl #######################
-dnl ## Library Functions ##
-dnl #######################
+dnl Checks for library functions.
 
 
-dnl #####################
-dnl ## System Services ##
-dnl #####################
-
-
-dnl ##########################
-dnl ## Last Minute Settings ##
-dnl ##########################
+dnl Last minute settings.
 LIBS="$LIBS $ac_krblibs"
 DEFS="$DEFS $ac_apidefs $ac_krbdefs"
 CFLAGS="$CFLAGS $DEFS"
 
 
-dnl #########################
-dnl ## Create Output Files ##
-dnl #########################
+dnl Create files necessary to compile mod_auth_kerb.
 if test "$ac_static" = "yes" ; then
 	echo ""
 	echo ""
