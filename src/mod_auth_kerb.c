@@ -868,6 +868,7 @@ int authenticate_user_krb5pwd(request_rec *r,
    int             ret;
    char            *name = NULL;
    int             all_principals_unkown;
+   char            *p = NULL;
 
    code = krb5_init_context(&kcontext);
    if (code) {
@@ -878,13 +879,6 @@ int authenticate_user_krb5pwd(request_rec *r,
 
    sent_pw = ap_pbase64decode(r->pool, auth_line);
    sent_name = ap_getword (r->pool, &sent_pw, ':');
-   /* do not allow user to override realm setting of server */
-   if (strchr(sent_name, '@')) {
-      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-  		 "specifying realm in user name is prohibited");
-      ret = HTTP_UNAUTHORIZED;
-      goto end;
-   }
 
    if (sent_pw == NULL || *sent_pw == '\0') {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
@@ -896,8 +890,19 @@ int authenticate_user_krb5pwd(request_rec *r,
    if (conf->krb_5_keytab)
       krb5_kt_resolve(kcontext, conf->krb_5_keytab, &keytab);
 
+   p = strchr(sent_name, '@');
+   if (p) {
+      *p++ = '\0';
+      if (conf->krb_auth_realms && !ap_find_token(r->pool, conf->krb_auth_realms, p)) {
+	 log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	            "Specified realm `%s' not allowed by configuration", p);
+         ret = HTTP_UNAUTHORIZED;
+         goto end;
+      }
+   }
+
+   realms = (p) ? p : conf->krb_auth_realms;
    all_principals_unkown = 1;
-   realms = conf->krb_auth_realms;
    do {
       name = (char *) sent_name;
       if (realms && (realm = ap_getword_white(r->pool, &realms)))
