@@ -2,13 +2,15 @@
 2. make
 3. make install
 4. edit your httpd.conf, eg:
+   LoadModule auth_kerb_module  libexec/mod_auth_kerb.so
+
    <Directory "/var/www/secure">
       Options Indexes FollowSymLinks
       AuthType Kerberos
-      KrbAuthRealms ICS.MUNI.CZ
+      KrbAuthRealms ICS.MUNI.CZ MUNI.CZ
       Krb5Keytab /etc/httpd/keytab
       KrbMethodNegotiate On
       KrbMethodK5Pass On
-      require valid-user
+      require kouril@ICS.MUNI.CZ
    </Directory>
 5. start httpd
