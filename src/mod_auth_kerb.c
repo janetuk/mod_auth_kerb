@@ -244,7 +244,11 @@ void log_rerror(const char *file, int line, int level, int status,
    va_start(ap, fmt);
    vsnprintf(errstr, sizeof(errstr), fmt, ap);
    va_end(ap);
-
+   
+   /* these functions also print out current errno (if not zero), resulting in
+    * lines of the format:
+    *    (errno)strerror(errno): errstr
+    * This behaviour can be avoided by using APLOG_NOERRNO */
 #ifdef APXS1
    ap_log_rerror(file, line, level, r, "%s", errstr);
 #else
@@ -508,6 +512,7 @@ create_krb5_ccache(krb5_context kcontext,
    krb5_ccache tmp_ccache = NULL;
 
 #ifdef HEIMDAL
+   /* new MIT krb5-1.3.x also supports this call */
    problem = krb5_cc_gen_new(kcontext, &krb5_fcc_ops, &tmp_ccache);
 #else
    problem = krb5_fcc_generate_new(kcontext, &tmp_ccache);
