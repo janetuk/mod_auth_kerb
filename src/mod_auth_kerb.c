@@ -1,3 +1,72 @@
+/*
+ * Daniel Kouril <kouril@users.sourceforge.org>
+ *
+ * Source and Documentation can be found at:
+ * http://modauthkerb.sourceforge.net/
+ *
+ * Based on work by
+ *   James E. Robinson, III <james@ncstate.net>
+ *   Daniel Henninger <daniel@ncsu.edu>
+ */
+
+/* ====================================================================
+ * The Apache Software License, Version 1.1
+ *
+ * Copyright (c) 2000-2003 The Apache Software Foundation.  All rights
+ * reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in
+ *    the documentation and/or other materials provided with the
+ *    distribution.
+ *
+ * 3. The end-user documentation included with the redistribution,
+ *    if any, must include the following acknowledgment:
+ *       "This product includes software developed by the
+ *        Apache Software Foundation (http://www.apache.org/)."
+ *    Alternately, this acknowledgment may appear in the software itself,
+ *    if and wherever such third-party acknowledgments normally appear.
+ *
+ * 4. The names "Apache" and "Apache Software Foundation" must
+ *    not be used to endorse or promote products derived from this
+ *    software without prior written permission. For written
+ *    permission, please contact apache@apache.org.
+ *
+ * 5. Products derived from this software may not be called "Apache",
+ *    nor may "Apache" appear in their name, without prior written
+ *    permission of the Apache Software Foundation.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESSED OR IMPLIED
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED.  IN NO EVENT SHALL THE APACHE SOFTWARE FOUNDATION OR
+ * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF
+ * USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
+ * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ * ====================================================================
+ *
+ * This software consists of voluntary contributions made by many
+ * individuals on behalf of the Apache Software Foundation.  For more
+ * information on the Apache Software Foundation, please see
+ * <http://www.apache.org/>.
+ *
+ * Portions of this software are based upon public domain software
+ * originally written at the National Center for Supercomputing Applications,
+ * University of Illinois, Urbana-Champaign.
+ */
+
 #ident "$Id$"
 
 #ifndef APXS1
@@ -13,16 +82,23 @@
 
 #ifdef KRB5
 #include <krb5.h>
-#include <gssapi.h>
-#ifndef HEIMDAL
-#include <gssapi_generic.h>
-#define GSS_C_NT_USER_NAME gss_nt_user_name
-#define GSS_C_NT_HOSTBASED_SERVICE gss_nt_service_name
-#define krb5_get_err_text(context,code) error_message(code)
+#ifdef HEIMDAL
+#  include <gssapi.h>
+#else
+#  include <gssapi/gssapi.h>
+#  include <gssapi/gssapi_generic.h>
+#  define GSS_C_NT_USER_NAME gss_nt_user_name
+#  define GSS_C_NT_HOSTBASED_SERVICE gss_nt_service_name
+#  define krb5_get_err_text(context,code) error_message(code)
 #endif
 #endif /* KRB5 */
 
 #ifdef KRB4
+/*Prevent warning about closesocket redefinition (Apache's ap_config.h and 
+ * MIT Kerberos' port-sockets.h both define it as close) */
+#ifdef closesocket
+#  undef closesocket
+#endif
 #include <krb.h>
 #endif /* KRB4 */
 
@@ -61,9 +137,7 @@ module AP_MODULE_DECLARE_DATA auth_kerb_module;
  ***************************************************************************/
 typedef struct {
 	char *krb_auth_realms;
-	char *krb_force_instance;
 	int krb_save_credentials;
-	char *service_name;
 #ifdef KRB5
 	char *krb_5_keytab;
 	int krb_method_gssapi;
@@ -99,9 +173,6 @@ static const command_rec kerb_auth_cmds[] = {
 
    command("KrbSaveCredentials", ap_set_flag_slot, krb_save_credentials,
      FLAG, "Save and store credentials/tickets retrieved during auth."),
-
-   command("KrbServiceName", ap_set_string_slot, service_name,
-     TAKE1, "Kerberos service name to be used by apache."),
 
 #ifdef KRB5
    command("Krb5Keytab", ap_set_file_slot, krb_5_keytab,
@@ -182,6 +253,51 @@ void log_rerror(const char *file, int line, int level, int status,
  Username/Password Validation for Krb4
  ***************************************************************************/
 static int
+verify_krb4_user(request_rec *r, char *name, char *instance, char *realm,
+      		 char *password, char *linstance, char *srvtab)
+{
+   int ret;
+   char *phost;
+   unsigned long addr;
+   struct hostent *hp;
+   const char *hostname;
+   KTEXT_ST ticket;
+   AUTH_DAT authdata;
+   char lrealm[REALM_SZ];
+
+   ret = krb_get_pw_in_tkt(name, instance, realm, "krbtgt", realm, 
+	 		   DEFAULT_TKT_LIFE, password);
+   if (ret)
+      /* log(krb_err_txt[ret]) */
+      return ret;
+
+   hostname = ap_get_server_name(r);
+
+   hp = gethostbyname(hostname);
+   if (hp == NULL) {
+      dest_tkt();
+      return h_errno;
+   }
+   memcpy(&addr, hp->h_addr, sizeof(addr));
+
+   phost = krb_get_phost((char *)hostname);
+
+   krb_get_lrealm(lrealm, 1);
+
+   ret = krb_mk_req(&ticket, linstance, phost, lrealm, 0);
+   if (ret) {
+      dest_tkt();
+      return ret;
+   }
+
+   ret = krb_rd_req(&ticket, linstance, phost, addr, &authdata, srvtab);
+   if (ret)
+      dest_tkt();
+
+   return ret;
+}
+
+static int
 krb4_cache_cleanup(void *data)
 {
    char *tkt_file = (char *) data;
@@ -199,15 +315,28 @@ authenticate_user_krb4pwd(request_rec *r,
    int ret;
    const char *sent_pw;
    const char *sent_name;
+   char *sent_instance;
    char tkt_file[32];
    char *tkt_file_p = NULL;
    int fd;
    const char *realms;
    const char *realm;
-   krb_principal pr;
+   char *user;
+   char lrealm[REALM_SZ];
 
    sent_pw = ap_pbase64decode(r->pool, auth_line);
    sent_name = ap_getword (r->pool, &sent_pw, ':');
+
+   /* do not allow user to override realm setting of server */
+   if (strchr(sent_name, '@')) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "specifying realm in user name is prohibited");
+      return HTTP_UNAUTHORIZED;
+   }
+
+   sent_instance = strchr(sent_name, '.');
+   if (sent_instance)
+      *sent_instance++ = '\0'; 
 
    snprintf(tkt_file, sizeof(tkt_file), "/tmp/apache_tkt_XXXXXX");
    fd = mkstemp(tkt_file);
@@ -226,13 +355,21 @@ authenticate_user_krb4pwd(request_rec *r,
 
    realms = conf->krb_auth_realms;
    do {
+      memset(lrealm, 0, sizeof(lrealm));
       realm = NULL;
       if (realms)
 	 realm = ap_getword_white(r->pool, &realms);
 
-      ret = krb_verify_user_srvtab((char *)sent_name, "", (char *)realm,
-	    			   (char *)sent_pw, 1, "khttp",
-				   conf->krb_4_srvtab);
+      if (realm == NULL) {
+	 ret = krb_get_lrealm(lrealm, 1);
+	 realm = lrealm;
+      }
+      if (realm == NULL || *realm == '\0')
+	 break;
+
+      ret = verify_krb4_user(r, (char *)sent_name, sent_instance,
+	    		     (char *)realm, (char *)sent_pw, "khttp",
+			     conf->krb_4_srvtab);
       if (ret == 0)
 	 break;
    } while (realms && *realms);
@@ -244,19 +381,17 @@ authenticate_user_krb4pwd(request_rec *r,
       goto end;
    }
 
-   if ((ret = krb_get_tf_realm(tkt_file, pr.realm)) ||
-       (ret = tf_init(tkt_file, R_TKT_FIL)) ||
-       (ret = tf_get_pname(pr.name)) ||
-       (ret = tf_get_pinst(pr.instance))) {
-      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	         "Cannot read krb4 principal from tfile (%d)", ret);
-      ret = HTTP_INTERNAL_SERVER_ERROR;
-      goto end;
-   }
+   user = ap_pstrdup(r->pool, sent_name);
+   if (sent_instance)
+      user = ap_pstrcat(r->pool, ".", sent_instance);
+   user = ap_pstrcat(r->pool, "@", realm);
 
-   MK_USER = ap_pstrdup (r->pool, krb_unparse_name(&pr));
+   MK_USER = user;
    MK_AUTH_TYPE = "Basic";
    ap_table_setn(r->subprocess_env, "KRBTKFILE", tkt_file_p);
+
+   if (!conf->krb_save_credentials)
+      krb4_cache_cleanup(tkt_file);
 
 end:
    if (ret)
@@ -272,11 +407,11 @@ end:
 /*************************************************************************** 
  Username/Password Validation for Krb5
  ***************************************************************************/
-#ifndef HEIMDAL
-krb5_error_code
-krb5_verify_user(krb5_context context, krb5_principal principal,
-      		 krb5_ccache ccache, const char *password, krb5_boolean secure,
-		 const char *service)
+/* Inspired by krb5_verify_user from Heimdal */
+static krb5_error_code
+verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
+      		 krb5_ccache ccache, const char *password, const char *service,
+		 krb5_keytab keytab)
 {
    krb5_creds creds;
    krb5_principal server = NULL;
@@ -291,15 +426,15 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
    if (ret)
       return ret;
 
-   ret = krb5_sname_to_principal(context, NULL, service, 
+   ret = krb5_sname_to_principal(context, ap_get_server_name(r), service, 
 	 			 KRB5_NT_SRV_HST, &server);
    if (ret)
       goto end;
 
    krb5_verify_init_creds_opt_init(&opt);
-   krb5_verify_init_creds_opt_set_ap_req_nofail(&opt, secure);
+   krb5_verify_init_creds_opt_set_ap_req_nofail(&opt, 1);
 
-   ret = krb5_verify_init_creds(context, &creds, server, NULL, NULL, &opt);
+   ret = krb5_verify_init_creds(context, &creds, server, keytab, NULL, &opt);
    if (ret)
       goto end;
 
@@ -315,8 +450,6 @@ end:
       krb5_free_principal(context, server);
    return ret;
 }
-#endif
-
 
 static int
 krb5_cache_cleanup(void *data)
@@ -450,11 +583,11 @@ int authenticate_user_krb5pwd(request_rec *r,
    const char      *sent_pw = NULL; 
    const char      *sent_name = NULL;
    const char      *realms = NULL;
-   const char	   *service_name = NULL;
    krb5_context    kcontext = NULL;
    krb5_error_code code;
    krb5_principal  client = NULL;
    krb5_ccache     ccache = NULL;
+   krb5_keytab     keytab = NULL;
    int             ret;
    char *name = NULL;
 
@@ -489,16 +622,8 @@ int authenticate_user_krb5pwd(request_rec *r,
    }
 
    if (conf->krb_5_keytab)
-      setenv("KRB5_KTNAME", conf->krb_5_keytab, 1);
-      /* kcontext->default_keytab = conf->krb_5_keytab; */
-
-   if (conf->service_name) {
-      char *p;
-      service_name = ap_pstrdup(r->pool, conf->service_name);
-      if ((p=strchr(service_name, '/')))
-	 *p = '\0';
-   } else
-      service_name = "khttp";
+      krb5_kt_resolve(kcontext, conf->krb_5_keytab, &keytab);
+      /* setenv("KRB5_KTNAME", conf->krb_5_keytab, 1); */
 
    realms = conf->krb_auth_realms;
    do {
@@ -514,8 +639,8 @@ int authenticate_user_krb5pwd(request_rec *r,
       if (code)
 	 continue;
 
-      code = krb5_verify_user(kcontext, client, ccache, sent_pw, 1, 
-	    		      service_name);
+      code = verify_krb5_user(r, kcontext, client, ccache, sent_pw, "khttp",
+	    		      keytab);
       if (code == 0)
 	 break;
 
@@ -554,6 +679,8 @@ end:
       krb5_free_principal(kcontext, client);
    if (ccache)
       krb5_cc_destroy(kcontext, ccache);
+   if (keytab)
+      krb5_kt_close(kcontext, keytab);
    krb5_free_context(kcontext);
 
    return ret;
@@ -670,18 +797,15 @@ get_gss_creds(request_rec *r,
    gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;
    OM_uint32 major_status, minor_status, minor_status2;
    gss_name_t server_name = GSS_C_NO_NAME;
+   char buf[1024];
 
-   if (conf->service_name) {
-      input_token.value = conf->service_name;
-      input_token.length = strlen(conf->service_name) + 1;
-   }
-   else {
-      input_token.value = "khttp";
-      input_token.length = 6;
-   }
+   snprintf(buf, sizeof(buf), "%s/%s", "khttp", ap_get_server_name(r));
+
+   input_token.value = buf;
+   input_token.length = strlen(buf) + 1;
+
    major_status = gss_import_name(&minor_status, &input_token,
-			          (conf->service_name) ? 
-			  	       GSS_C_NT_USER_NAME : GSS_C_NT_HOSTBASED_SERVICE,
+	 			  GSS_C_NT_USER_NAME,
 				  &server_name);
    if (GSS_ERROR(major_status)) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
@@ -826,27 +950,6 @@ authenticate_user_gss(request_rec *r,
      store_gss_creds(r, conf, (char *)output_token.value, delegated_cred);
 
   gss_release_buffer(&minor_status, &output_token);
-
-#if 0
-  /* If the user comes from a realm specified by configuration don't include
-      its realm name in the username so that the authorization routine could
-      work for both Password-based and Ticket-based authentication. It's
-      administrators responsibility to include only such realm that have
-      unified principal instances, i.e. if the same principal name occures in
-      multiple realms, it must be always assigned to a single user.
-  */    
-  p = strchr(r->connection->user, '@');
-  if (p != NULL) {
-     const char *realms = conf->gss_krb5_realms;
-
-     while (realms && *realms) {
-	if (strcmp(p+1, ap_getword_white(r->pool, &realms)) == 0) {
-	   *p = '\0';
-	   break;
-	}
-     }
-  }
-#endif
 
   ret = OK;
 
