@@ -1009,6 +1009,7 @@ get_gss_creds(request_rec *r,
       return HTTP_INTERNAL_SERVER_ERROR;
    }
 
+   /* XXX misto buf vypisovat jmeno vracene z display_name() */
    log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Acquiring creds for %s", buf);
    
    major_status = gss_acquire_cred(&minor_status, server_name, GSS_C_INDEFINITE,
@@ -1054,8 +1055,6 @@ cmp_gss_type(gss_buffer_t token, gss_OID oid)
 
    if (token->length == 0)
       return GSS_S_DEFECTIVE_TOKEN;
-
-   /* XXX if (token->value == NTLMSSP) log_debug("NTLM mechanism used"); */
 
    p = token->value;
    if (*p++ != 0x60)
@@ -1179,6 +1178,10 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
   }
 
   if (GSS_ERROR(major_status)) {
+     if (input_token.length > 7 && memcmp(input_token.value, "NTLMSSP", 7) == 0)
+	log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	          "Warning: received token seems to be NTLM, which isn't supported by the Kerberos module. Check your IE configuration.");
+
      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	        "%s", get_gss_error(r->pool, major_status, minor_status,
 		                    "gss_accept_sec_context() failed"));
