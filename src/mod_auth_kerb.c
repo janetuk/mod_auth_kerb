@@ -988,20 +988,21 @@ get_gss_creds(request_rec *r,
               kerb_auth_config *conf,
 	      gss_cred_id_t *server_creds)
 {
-   gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;
+   gss_buffer_desc token = GSS_C_EMPTY_BUFFER;
    OM_uint32 major_status, minor_status, minor_status2;
    gss_name_t server_name = GSS_C_NO_NAME;
    char buf[1024];
 
    snprintf(buf, sizeof(buf), "%s@%s", conf->krb_service_name,
-	 ap_get_server_name(r));
+	    ap_get_server_name(r));
 
-   input_token.value = buf;
-   input_token.length = strlen(buf) + 1;
+   token.value = buf;
+   token.length = strlen(buf) + 1;
 
-   major_status = gss_import_name(&minor_status, &input_token,
+   major_status = gss_import_name(&minor_status, &token,
 	 			  GSS_C_NT_HOSTBASED_SERVICE,
 				  &server_name);
+   memset(&token, 0, sizeof(token));
    if (GSS_ERROR(major_status)) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	         "%s", get_gss_error(r->pool, major_status, minor_status,
@@ -1009,8 +1010,19 @@ get_gss_creds(request_rec *r,
       return HTTP_INTERNAL_SERVER_ERROR;
    }
 
-   /* XXX misto buf vypisovat jmeno vracene z display_name() */
-   log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Acquiring creds for %s", buf);
+   major_status = gss_display_name(&minor_status, server_name, &token, NULL);
+   if (GSS_ERROR(major_status)) {
+      /* Perhaps we could just ignore this error but it's safer to give up now,
+         I think */
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "%s", get_gss_error(r->pool, major_status, minor_status,
+		                     "gss_display_name() failed"));
+      return HTTP_INTERNAL_SERVER_ERROR;
+   }
+
+   log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Acquiring creds for %s",
+	      token.value);
+   gss_release_buffer(&minor_status, &token);
    
    major_status = gss_acquire_cred(&minor_status, server_name, GSS_C_INDEFINITE,
 			           GSS_C_NO_OID_SET, GSS_C_ACCEPT,
