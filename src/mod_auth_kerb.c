@@ -1241,7 +1241,8 @@ set_kerb_auth_headers(request_rec *r, const kerb_auth_config *conf,
    /* get the user realm specified in .htaccess */
    auth_name = ap_auth_name(r);
 
-   /* XXX should the WWW-Authenticate header be cleared first? */
+   /* XXX should the WWW-Authenticate header be cleared first?
+    * apache in the proxy mode should retain client's authN headers? */
 #ifdef KRB5
    if (negotiate_ret_value != NULL && conf->krb_method_gssapi) {
       negoauth_param = (*negotiate_ret_value == '\0') ? "Negotiate" :
@@ -1288,14 +1289,13 @@ int kerb_authenticate_user(request_rec *r)
       return DECLINED;
 
    /* get what the user sent us in the HTTP header */
-   auth_line = MK_TABLE_GET(r->headers_in, "Authorization");
+   auth_line = MK_TABLE_GET(r->headers_in, (r->proxyreq == PROXYREQ_PROXY)
+	                                    ? "Proxy-Authorization"
+					    : "Authorization");
    if (!auth_line) {
-       auth_line = MK_TABLE_GET(r->headers_in, "Proxy-Authorization");
-       if (!auth_line) {
-               set_kerb_auth_headers(r, conf, use_krb4, use_krb5,
-		                     (use_krb5) ? "\0" : NULL);
-               return HTTP_UNAUTHORIZED;
-       }
+      set_kerb_auth_headers(r, conf, use_krb4, use_krb5, 
+	                    (use_krb5) ? "\0" : NULL);
+      return HTTP_UNAUTHORIZED;
    }
    auth_type = ap_getword_white(r->pool, &auth_line);
 
