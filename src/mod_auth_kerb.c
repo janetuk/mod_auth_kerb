@@ -72,7 +72,7 @@
 
 #include "config.h"
 
-#define MODAUTHKERB_VERSION "5.0-rc3"
+#define MODAUTHKERB_VERSION "5.0-rc4"
 
 #ifndef APXS1
 #include "ap_compat.h"
