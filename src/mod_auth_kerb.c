@@ -139,6 +139,7 @@ typedef struct {
 	int krb_save_credentials;
 	int krb_verify_kdc;
 	char *krb_service_name;
+	int krb_authoritative;
 #ifdef KRB5
 	char *krb_5_keytab;
 	int krb_method_gssapi;
@@ -180,6 +181,9 @@ static const command_rec kerb_auth_cmds[] = {
 
    command("KrbServiceName", ap_set_file_slot, krb_service_name,
      TAKE1, "Service name to be used by Apache for authentication."),
+
+   command("KrbAuthoritative", ap_set_flag_slot, krb_authoritative,
+     FLAG, "Set to 'off' to allow access control to be passed along to lower modules if the UserID is not known to this module."),
 
 #ifdef KRB5
    command("Krb5Keytab", ap_set_file_slot, krb_5_keytab,
@@ -223,6 +227,7 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 	rec = (kerb_auth_config *) ap_pcalloc(p, sizeof(kerb_auth_config));
         ((kerb_auth_config *)rec)->krb_verify_kdc = 1;
 	((kerb_auth_config *)rec)->krb_service_name = "khttp";
+	((kerb_auth_config *)rec)->krb_authoritative = 1;
 #ifdef KRB5
 	((kerb_auth_config *)rec)->krb_method_k5pass = 1;
 	((kerb_auth_config *)rec)->krb_method_gssapi = 1;
@@ -355,6 +360,7 @@ authenticate_user_krb4pwd(request_rec *r,
    const char *realm;
    char *user;
    char lrealm[REALM_SZ];
+   int all_principals_unkown;
 
    sent_pw = ap_pbase64decode(r->pool, auth_line);
    sent_name = ap_getword (r->pool, &sent_pw, ':');
@@ -385,6 +391,7 @@ authenticate_user_krb4pwd(request_rec *r,
 
    krb_set_tkt_string(tkt_file);
 
+   all_principals_unkown = 1;
    realms = conf->krb_auth_realms;
    do {
       memset(lrealm, 0, sizeof(lrealm));
@@ -404,13 +411,21 @@ authenticate_user_krb4pwd(request_rec *r,
 	    		     (char *)realm, (char *)sent_pw,
 			     conf->krb_service_name,
 			     conf->krb_4_srvtab, conf->krb_verify_kdc);
+      if (!conf->krb_authoritative && ret) {
+	 /* if we're not authoritative, we allow authentication to pass on
+	  * to another modules if (and only if) the user is not known to us */
+	 if (all_principals_unkown && ret != KDC_PR_UNKNOWN)
+	    all_principals_unkown = 0;
+      }
+
       if (ret == 0)
 	 break;
    } while (realms && *realms);
 
    if (ret) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Verifying krb4 password failed");
-      ret = HTTP_UNAUTHORIZED;
+      ret = (all_principals_unkown = 1 && ret == KDC_PR_UNKNOWN) ?
+	         DECLINED : HTTP_UNAUTHORIZED;
       goto end;
    }
 
@@ -624,7 +639,8 @@ int authenticate_user_krb5pwd(request_rec *r,
    krb5_ccache     ccache = NULL;
    krb5_keytab     keytab = NULL;
    int             ret;
-   char *name = NULL;
+   char            *name = NULL;
+   int             all_principals_unkown;
 
    code = krb5_init_context(&kcontext);
    if (code) {
@@ -661,6 +677,7 @@ int authenticate_user_krb5pwd(request_rec *r,
    if (conf->krb_5_keytab)
       krb5_kt_resolve(kcontext, conf->krb_5_keytab, &keytab);
 
+   all_principals_unkown = 1;
    realms = conf->krb_auth_realms;
    do {
       if (realms && (code = krb5_set_default_realm(kcontext,
@@ -678,6 +695,13 @@ int authenticate_user_krb5pwd(request_rec *r,
       code = verify_krb5_user(r, kcontext, client, ccache, sent_pw, 
 	    		      conf->krb_service_name, 
 	    		      keytab, conf->krb_verify_kdc);
+      if (!conf->krb_authoritative && code) {
+	 /* if we're not authoritative, we allow authentication to pass on
+	  * to another modules if (and only if) the user is not known to us */
+	 if (all_principals_unkown && code != KRB5KDC_ERR_C_PRINCIPAL_UNKNOWN)
+	    all_principals_unkown = 0;
+      }
+
       if (code == 0)
 	 break;
 
@@ -691,7 +715,11 @@ int authenticate_user_krb5pwd(request_rec *r,
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	         "Verifying krb5 password failed: %s",
 		 krb5_get_err_text(kcontext, code));
-      ret = HTTP_UNAUTHORIZED;
+      if (all_principals_unkown = 1 && code == KRB5KDC_ERR_C_PRINCIPAL_UNKNOWN)
+	 ret = DECLINED;
+      else
+	 ret = HTTP_UNAUTHORIZED;
+
       goto end;
    }
 
