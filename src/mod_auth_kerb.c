@@ -146,10 +146,6 @@ static const command_rec kerb_auth_cmds[] = {
    { NULL }
 };
 
-
-/*************************************************************************** 
- GSSAPI Support Initialization
- ***************************************************************************/
 #ifdef KRB5
 typedef struct {
    gss_ctx_id_t context;
@@ -157,24 +153,7 @@ typedef struct {
 } gss_connection_t;
 
 static gss_connection_t *gss_connection = NULL;
-
-static void
-cleanup_gss_connection(void *data)
-{
-   OM_uint32 minor_status;
-   gss_connection_t *gss_conn = (gss_connection_t *)data;
-
-   if (data == NULL)
-      return;
-   if (gss_conn->context != GSS_C_NO_CONTEXT)
-      gss_delete_sec_context(&minor_status, &gss_conn->context,
-	                     GSS_C_NO_BUFFER);
-   if (gss_conn->server_creds != GSS_C_NO_CREDENTIAL)
-      gss_release_cred(&minor_status, &gss_conn->server_creds);
-}
 #endif
-
-
 
 
 /*************************************************************************** 
@@ -216,6 +195,9 @@ static const char *kerb_set_fail_slot(cmd_parms *cmd, void *struct_ptr,
 #endif
 
 #ifdef KRB4
+/*************************************************************************** 
+ Username/Password Validation for Krb4
+ ***************************************************************************/
 int kerb4_password_validate(request_rec *r, const char *user, const char *pass)
 {
 	kerb_auth_config *conf =
@@ -305,6 +287,9 @@ int kerb4_password_validate(request_rec *r, const char *user, const char *pass)
 #endif /* KRB4 */
 
 #ifdef KRB5
+/*************************************************************************** 
+ Username/Password Validation for Krb5
+ ***************************************************************************/
 #ifndef HEIMDAL
 krb5_error_code
 krb5_verify_user(krb5_context context, krb5_principal principal,
@@ -358,9 +343,6 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
 #endif
 
 
-/*************************************************************************** 
- Username/Password Validation
- ***************************************************************************/
 static void
 krb5_cache_cleanup(void *data)
 {
@@ -410,26 +392,6 @@ create_krb5_ccache(krb5_context kcontext,
 			*c = '.';
 	}
 
-#if 0
-	/* not sure what's the purpose of this call here */
-	problem = krb5_cc_set_default_name(kcontext, ccname);
-        if (problem) {
-                snprintf(errstr, sizeof(errstr),
-                           "krb5_cc_set_default_name() failed: %s",
-                           krb5_get_err_text(kcontext, problem));
-                ap_log_reason (errstr, r->uri, r);
-                ret = SERVER_ERROR;
-                goto end;
-          }
-
-#endif
-
-#if 0
-	/* XXX Dan: Why is this done? Cleanup? But the file would not be
-         * accessible from another processes (CGI) */
-        unlink(ccname+strlen("FILE:"));
-#endif
-
 	problem = krb5_cc_resolve(kcontext, ccname, &tmp_ccache);
 	if (problem) {
 		snprintf(errstr, sizeof(errstr),
@@ -463,7 +425,7 @@ end:
 	if (tmp_ccache)
 	   krb5_cc_destroy(kcontext, tmp_ccache);
 
-	return ret; /* XXX */
+	return ret;
 }
 
 static int
@@ -596,6 +558,9 @@ end:
    return ret;
 }
 
+/*********************************************************************
+ * GSSAPI Authentication
+ ********************************************************************/
 
 static const char *
 get_gss_error(pool *p, OM_uint32 error_status, char *prefix)
@@ -625,6 +590,20 @@ get_gss_error(pool *p, OM_uint32 error_status, char *prefix)
    return (ap_pstrdup(p, buf));
 }
 
+static void
+cleanup_gss_connection(void *data)
+{
+   OM_uint32 minor_status;
+   gss_connection_t *gss_conn = (gss_connection_t *)data;
+
+   if (data == NULL)
+      return;
+   if (gss_conn->context != GSS_C_NO_CONTEXT)
+      gss_delete_sec_context(&minor_status, &gss_conn->context,
+	                     GSS_C_NO_BUFFER);
+   if (gss_conn->server_creds != GSS_C_NO_CREDENTIAL)
+      gss_release_cred(&minor_status, &gss_conn->server_creds);
+}
 
 static int
 store_gss_creds(request_rec *r, kerb_auth_config *conf, char *princ_name,
