@@ -1,3 +1,12 @@
+2002-07-07  Daniel Henninger  <daniel@ncsu.edu>
+
+	* TODO:
+	Finished creation of TODO file and went through all submissions.
+
+	* apache1/auth_user.c:
+	* apache2/auth_user.c:
+	Added KerberosDualV5V4 and KerberosDualV4V5 support.
+
 2002-05-08  Daniel Henninger  <daniel@ncsu.edu>
 
 	* *:

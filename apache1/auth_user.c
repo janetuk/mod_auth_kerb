@@ -3,8 +3,10 @@ int kerb_authenticate_user(request_rec *r) {
 	const char *type;		/* AuthType specified */
 	int KerberosV5 = 0;		/* Kerberos V5 check enabled */
 	int KerberosV4 = 0;		/* Kerberos V4 check enabled */
+	int KerberosV4first = 0;	/* Kerberos V4 check first */
 	const char *sent_pw;		/* Password sent by browser */
 	int res;			/* Response holder */
+	int retcode;			/* Return code holder */
 	const char *t;			/* Decoded auth_line */
 	const char *authtype;		/* AuthType to send back to browser */
 	const char *auth_line = ap_table_get(r->headers_in,
@@ -26,6 +28,19 @@ int kerb_authenticate_user(request_rec *r) {
 			KerberosV4 = 1;
 		}
 #endif /* KRB4 */
+
+#if defined(KRB5) && defined(KRB4)
+		if (strncasecmp(type, "KerberosDualV5V4", 15) == 0) {
+			KerberosV5 = 1;
+			KerberosV4 = 1;
+		}
+
+		if (strncasecmp(type, "KerberosDualV4V5", 15) == 0) {
+			KerberosV5 = 1;
+			KerberosV4 = 1;
+			KerberosV4first = 1;
+		}
+#endif /* KRB5 && KRB4 */
 	}
 
 	if (!KerberosV4 && !KerberosV5) {
@@ -51,26 +66,40 @@ int kerb_authenticate_user(request_rec *r) {
 	r->connection->ap_auth_type = "Kerberos";
 	sent_pw = ap_getword_white(r->pool, &t);
 
+	retcode = DECLINED;
+
 #ifdef KRB5
-	if (KerberosV5) {
+	if (KerberosV5 && !KerberosV4first && retcode != OK) {
 		if (kerb5_password_validate(r->connection->user, sent_pw)) {
-			return OK;
+			retcode = OK;
 		}
 		else {
-			return HTTP_UNAUTHORIZED;
+			retcode = HTTP_UNAUTHORIZED;
 		}
 	}
 #endif /* KRB5 */
+
 #ifdef KRB4
-	if (KerberosV4) {
+	if (KerberosV4 && retcode != OK) {
 		if (kerb4_password_validate(r->connection->user, sent_pw)) {
-			return OK;
+			retcode = OK;
 		}
 		else {
-			return HTTP_UNAUTHORIZED;
+			retcode = HTTP_UNAUTHORIZED;
 		}
 	}
 #endif /* KRB4 */
 
-	return DECLINED;
+#if defined(KRB5) && defined(KRB4)
+	if (KerberosV5 && KerberosV4first && retcode != OK) {
+		if (kerb5_password_validate(r->connection->user, sent_pw)) {
+			retcode = OK;
+		}
+		else {
+			retcode = HTTP_UNAUTHORIZED;
+		}
+	}
+#endif /* KRB5 && KRB4 */
+
+	return retcode;
 }
