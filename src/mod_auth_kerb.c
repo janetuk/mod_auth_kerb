@@ -50,8 +50,6 @@ module AP_MODULE_DECLARE_DATA auth_kerb_module;
 #endif /* APXS1 */
 
 
-
-
 /*************************************************************************** 
  Auth Configuration Structure
  ***************************************************************************/
@@ -75,6 +73,9 @@ typedef struct {
 #endif
 } kerb_auth_config;
 
+static const char*
+krb5_save_realms(cmd_parms *cmd, kerb_auth_config *sec, char *arg);
+
 #ifdef APXS1
 #define command(name, func, var, type, usage) 		\
   { name, func, 					\
@@ -88,11 +89,11 @@ typedef struct {
 #endif
 
 static const command_rec kerb_auth_cmds[] = {
-   command("KrbAuthRealm", ap_set_string_slot, krb_auth_realms,
-     ITERATE, "Realms to attempt authentication against (can be multiple)."),
+   command("KrbAuthRealm", krb5_save_realms, krb_auth_realms,
+     RAW_ARGS, "Realms to attempt authentication against (can be multiple)."),
 
-   command("KrbAuthRealms", ap_set_string_slot, krb_auth_realms,
-     ITERATE, "Alias for KrbAuthRealm."),
+   command("KrbAuthRealms", krb5_save_realms, krb_auth_realms,
+     RAW_ARGS, "Alias for KrbAuthRealm."),
 
 #if 0
    command("KrbFailStatus", kerb_set_fail_slot, krb_fail_status,
@@ -171,6 +172,13 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 	((kerb_auth_config *)rec)->krb_method_k4pass = 1;
 #endif
 	return rec;
+}
+
+static const char*
+krb5_save_realms(cmd_parms *cmd, kerb_auth_config *sec, char *arg)
+{
+   sec->krb_auth_realms= ap_pstrdup(cmd->pool, arg);
+   return NULL;
 }
 
 void log_rerror(const char *file, int line, int level, int status,
@@ -532,17 +540,14 @@ int authenticate_user_krb5pwd(request_rec *r,
 	          		           ap_getword_white(r->pool, &realms))))
 	 continue;
 
-#if 0
       code = krb5_parse_name(kcontext, MK_USER, &client);
-#else
-      code = krb5_parse_name(kcontext, "kouril", &client);
-#endif
       if (code)
 	 continue;
 
       code = krb5_verify_user(kcontext, client, ccache, sent_pw, 1, 
 	    	(conf->service_name) ? conf->service_name : "khttp");
       krb5_free_principal(kcontext, client);
+      client = NULL;
       if (code == 0)
 	 break;
 
