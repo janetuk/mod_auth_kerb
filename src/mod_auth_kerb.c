@@ -51,6 +51,7 @@
 #include <stdarg.h>
 
 #define MODAUTHKERB_VERSION "5.0-rc6"
+#define MECH_NEGOTIATE "Negotiate"
 
 #include <httpd.h>
 #include <http_config.h>
@@ -1271,7 +1272,7 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
     goto end;
   }
 
-  MK_AUTH_TYPE = "Negotiate";
+  MK_AUTH_TYPE = MECH_NEGOTIATE;
   MK_USER = ap_pstrdup(r->pool, output_token.value);
 
   if (conf->krb_save_credentials && delegated_cred != GSS_C_NO_CREDENTIAL)
@@ -1309,7 +1310,7 @@ already_succeeded(request_rec *r)
 {
    if (ap_is_initial_req(r) || MK_AUTH_TYPE == NULL)
       return 0;
-   if (strcmp(MK_AUTH_TYPE, "Negotiate") ||
+   if (strcmp(MK_AUTH_TYPE, MECH_NEGOTIATE) ||
        (strcmp(MK_AUTH_TYPE, "Basic") && strchr(MK_USER, '@')))
       return 1;
    return 0;
@@ -1332,8 +1333,8 @@ set_kerb_auth_headers(request_rec *r, const kerb_auth_config *conf,
     * apache in the proxy mode should retain client's authN headers? */
 #ifdef KRB5
    if (negotiate_ret_value != NULL && conf->krb_method_gssapi) {
-      negoauth_param = (*negotiate_ret_value == '\0') ? "Negotiate" :
-	          ap_pstrcat(r->pool, "Negotiate ", negotiate_ret_value, NULL);
+      negoauth_param = (*negotiate_ret_value == '\0') ? MECH_NEGOTIATE :
+	          ap_pstrcat(r->pool, MECH_NEGOTIATE " ", negotiate_ret_value, NULL);
       ap_table_add(r->err_headers_out, header_name, negoauth_param);
    }
    if ((use_krb5pwd && conf->krb_method_k5pass) || conf->krb_delegate_basic) {
@@ -1409,7 +1410,7 @@ int kerb_authenticate_user(request_rec *r)
 
 #ifdef KRB5
    if (use_krb5 && conf->krb_method_gssapi &&
-       strcasecmp(auth_type, "Negotiate") == 0) {
+       strcasecmp(auth_type, MECH_NEGOTIATE) == 0) {
       ret = authenticate_user_gss(r, conf, auth_line, &negotiate_ret_value);
    } else if (use_krb5 && conf->krb_method_k5pass &&
 	      strcasecmp(auth_type, "Basic") == 0) {
