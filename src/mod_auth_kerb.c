@@ -445,6 +445,7 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
 		 const char *service)
 {
    int problem;
+   krb5_timestamp now;
    krb5_creds my_creds;
    krb5_data tgtname = {
       0,
@@ -490,31 +491,146 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
  Username/Password Validation
  ***************************************************************************/
 #ifdef KRB5
+static void
+krb5_cache_cleanup(void *data)
+{
+   krb5_context context;
+   krb5_ccache  cache;
+   krb5_error_code problem;
+   char *cache_name = (char *) data;
+
+   problem = krb5_init_context(&context);
+   if (problem) {
+      ap_log_error(APLOG_MARK, APLOG_ERR, NULL, "krb5_init_context() failed");
+      return;
+   }
+
+   problem = krb5_cc_resolve(context, cache_name, &cache);
+   if (problem) {
+      ap_log_error(APLOG_MARK, APLOG_ERR, NULL, 
+                   "krb5_cc_resolve() failed (%s: %s)",
+	           cache_name, krb5_get_err_text(context, problem)); 
+      return;
+   }
+
+   krb5_cc_destroy(context, cache);
+   krb5_free_context(context);
+}
+
+static int
+store_krb5_creds(krb5_context kcontext,
+      		 request_rec *r,
+		 kerb_auth_config *conf,
+		 krb5_ccache delegated_cred)
+{
+	char *c, ccname[MAX_STRING_LEN];
+	krb5_error_code problem;
+	char errstr[1024];
+	int ret;
+	krb5_ccache ccache = NULL;
+	krb5_principal me = NULL;
+
+	sprintf(ccname, "FILE:%s/k5cc_ap_%s",
+  	        conf->krb_tmp_dir ? conf->krb_tmp_dir : "/tmp",
+	        MK_USER);
+
+	for (c = ccname + strlen(conf->krb_tmp_dir ? conf->krb_tmp_dir :
+	     "/tmp") + 1; *c; c++) {
+		if (*c == '/')
+			*c = '.';
+	  }
+
+	problem = krb5_cc_set_default_name(kcontext, ccname);
+	if (problem) {
+		snprintf(errstr, sizeof(errstr),
+			   "krb5_cc_set_default_name() failed: %s",
+			   krb5_get_err_text(kcontext, problem));
+		ap_log_reason (errstr, r->uri, r);
+		ret = SERVER_ERROR;
+		goto end;
+	  }
+#if 0
+	  /* XXX Dan: Why is this done? Cleanup? But the file would not be 
+	   * accessible from another processes (CGI) */
+	  unlink(ccname+strlen("FILE:"));
+#endif
+
+	  problem = krb5_cc_resolve(kcontext, ccname, &ccache);
+	  if (problem) {
+		snprintf(errstr, sizeof(errstr),
+			 "krb5_cc_resolve() failed: %s",
+			 krb5_get_err_text(kcontext, problem));
+		ap_log_reason (errstr, r->uri, r);
+		ret = SERVER_ERROR;
+		goto end;
+	  }
+
+	  problem = krb5_cc_get_principal(kcontext, delegated_cred, &me);
+	  if (problem) {
+		  snprintf(errstr, sizeof(errstr),
+			   "krb5_cc_get_principal() failed: %s",
+			   krb5_get_err_text(kcontext, problem));
+		  ap_log_reason (errstr, r->uri, r);
+		  ret = SERVER_ERROR;
+		  goto end;
+	  }
+
+	  problem = krb5_cc_initialize(kcontext, ccache, me);
+	  if (problem) {
+	  	snprintf(errstr, sizeof(errstr),
+		         "krb5_cc_initialize() failed: %s",
+			 krb5_get_err_text(kcontext, problem));
+		ap_log_reason (errstr, r->uri, r);
+		ret = SERVER_ERROR;
+		goto end;
+	  }
+
+	  problem = krb5_cc_copy_cache(kcontext, delegated_cred, ccache);
+	  if (problem) {
+	     snprintf(errstr, sizeof(errstr),
+		      "krb5_cc_copy_cache failed: %s",
+		      krb5_get_err_text(kcontext, problem));
+	     ap_log_reason (errstr, r->uri, r);
+	     ret = SERVER_ERROR;
+	     goto end;
+	  }
+	  ap_table_setn(r->subprocess_env, "KRB5CCNAME", ccname);
+	  ap_register_cleanup(r->pool, ccname,
+			      krb5_cache_cleanup, ap_null_cleanup);
+
+	  krb5_cc_close(kcontext, ccache);
+
+	  ret = OK;
+
+end:
+
+	  return ret; /* XXX */
+}
+
 int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
 {
+
 	kerb_auth_config *conf =
 		(kerb_auth_config *)ap_get_module_config(r->per_dir_config,
 					&kerb_auth_module);
 	int ret;
 	krb5_context kcontext;
-	krb5_principal server, me;
-	krb5_creds my_creds;
-	krb5_timestamp now;
+	krb5_principal server, client;
 	krb5_ccache ccache = NULL;
 	krb5_deltat lifetime = 300;	/* 5 minutes */
 	krb5_deltat renewal = 0;
 	krb5_flags options = 0;
-	krb5_data tgtname = {
-#ifndef HEIMDAL
-		0,
-#endif
-		KRB5_TGS_NAME_SIZE,
-		KRB5_TGS_NAME
-	};
-	char *c, ccname[MAX_STRING_LEN];
+	char errstr[1024];
+	krb5_error_code code;
+	const char *realms;
 
-	if (krb5_init_context(&kcontext))
+	if (krb5_init_context(&kcontext)) {
+	   	snprintf(errstr, sizeof(errstr),
+		         "Cannot initialize Kerberos5 context");
+		ap_log_reason (errstr, r->uri, r);
+		ret = SERVER_ERROR;
 		return 0;
+	}
 
 	if (conf->krb_forwardable) {
 	   options |= KDC_OPT_FORWARDABLE;
@@ -538,7 +654,7 @@ int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
 	   goto end;
 	}
 
-	realms = conf->krb5_auth_realm;
+	realms = conf->krb_default_realm;
 	do {
 	   code = 0;
 	   if (realms) {
@@ -548,12 +664,13 @@ int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
 		 continue;
 	   }
 
-	   code = krb5_parse_name(kcontext, r->connection->user, &princ);
+	   code = krb5_parse_name(kcontext, r->connection->user, &client);
 	   if (code)
 	      continue;
 
-	   code = krb5_verify_user(kcontext, princ, ccache, sent_pw,
+	   code = krb5_verify_user(kcontext, client, ccache, pass,
 		 		   1, "khttp");
+	   krb5_free_principal(kcontext, client);
 	   if (code == 0)
 	      break;
 
@@ -568,42 +685,23 @@ int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
 		    krb5_get_err_text(kcontext, code));
 	   ap_log_reason (errstr, r->uri, r);
 	   ret = HTTP_UNAUTHORIZED;
-	   return 0;
+	   goto end;
 	}
 
 	if (conf->krb_save_credentials) {
-		sprintf(ccname, "FILE:%s/k5cc_ap_%s",
-		        conf->krb_tmp_dir ? conf->krb_tmp_dir : "/tmp",
-			MK_USER);
-
-		for (c = ccname + strlen(conf->krb_tmp_dir ? conf->krb_tmp_dir :                                "/tmp") + 1; *c; c++) {
-			if (*c == '/')
-				*c = '.';
-		}
-
-		ap_table_setn(r->subprocess_env, "KRB5CCNAME", ccname);
-		if (krb5_cc_set_default_name(kcontext, ccname)) {
-			return 0;
-		}
-		unlink(ccname+strlen("FILE:"));
-
-		if (krb5_cc_resolve(kcontext, ccname, &ccache))
-			return 0;
-
-		problem = krb5_cc_get_principal(krb_ctx, mem_ccache, &me);
-
-		if (krb5_cc_initialize(kcontext, ccache, me))
-			return 0;
-
-		problem = krb5_cc_copy_cache(krb_ctx, delegated_cred, ccache);
-		if (problem) {
-		   return 0;
-		}
-
-		krb5_cc_close(krb_ctx, ccache);
+		ret = store_krb5_creds(kcontext, r, conf, ccache);
+		if (ret)
+			goto end;
 	}
 
-	return 1;
+	ret = 1; /* XXX should be OK ? */
+
+end:
+	if (ccache)
+	   krb5_cc_destroy(kcontext, ccache);
+	krb5_free_context(kcontext);
+
+	return (ret != 1) ? 0 : 1; /* XXX */
 }
 #endif /* KRB5 */
 
@@ -772,8 +870,8 @@ negotiate_authenticate_user(request_rec *r,
   if (gss_connection == NULL) {
      gss_connection = ap_pcalloc(r->connection->pool, sizeof(*gss_connection));
      if (gss_connection == NULL) {
-	ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
-	              "ap_pcalloc() failed");
+	ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+	              "ap_pcalloc() failed (not enough memory)");
 	ret = SERVER_ERROR;
 	goto end;
      }
@@ -790,8 +888,8 @@ negotiate_authenticate_user(request_rec *r,
   /* ap_getword() shifts parameter */
   auth_param = ap_getword_white(r->pool, &auth_line);
   if (auth_param == NULL) {
-     ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
-	           "No Authorization parameter from client");
+     ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+	           "No Authorization parameter in request from client");
      ret = HTTP_UNAUTHORIZED;
      goto end;
   }
@@ -799,8 +897,8 @@ negotiate_authenticate_user(request_rec *r,
   input_token.length = ap_base64decode_len(auth_param);
   input_token.value = ap_pcalloc(r->connection->pool, input_token.length);
   if (input_token.value == NULL) {
-     ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
-	   	   "Not enough memory");
+     ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+	   	   "ap_pcalloc() failed (not enough memory)");
      ret = SERVER_ERROR;
      goto end;
   }
@@ -824,8 +922,8 @@ negotiate_authenticate_user(request_rec *r,
      len = ap_base64encode_len(output_token.length);
      token = ap_pcalloc(r->connection->pool, len + 1);
      if (token == NULL) {
-	ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
-	             "Not enough memory");
+	ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+	             "ap_pcalloc() failed (not enough memory)");
         ret = SERVER_ERROR;
 	gss_release_buffer(&minor_status2, &output_token);
 	goto end;
@@ -834,12 +932,11 @@ negotiate_authenticate_user(request_rec *r,
      token[len] = '\0';
      ap_table_set(r->err_headers_out, "WWW-Authenticate",
 	          ap_pstrcat(r->pool, "GSS-Negotiate ", token, NULL));
-     free(token);
      gss_release_buffer(&minor_status2, &output_token);
   }
 
   if (GSS_ERROR(major_status)) {
-     ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
+     ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
 	           "%s", get_gss_error(r->pool, minor_status,
 		                       "gss_accept_sec_context() failed"));
      ret = HTTP_UNAUTHORIZED;
@@ -847,10 +944,8 @@ negotiate_authenticate_user(request_rec *r,
   }
 
   if (major_status & GSS_S_CONTINUE_NEEDED) {
-#if 0
-     ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
-	           "only one authentication iteration allowed"); 
-#endif
+     /* Some GSSAPI mechanism (eg GSI from Globus) may require multiple 
+      * iterations to establish authentication */
      ret = HTTP_UNAUTHORIZED;
      goto end;
   }
@@ -858,7 +953,7 @@ negotiate_authenticate_user(request_rec *r,
   major_status = gss_export_name(&minor_status, client_name, &output_token);
   gss_release_name(&minor_status, &client_name); 
   if (GSS_ERROR(major_status)) {
-    ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
+    ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
 	          "%s", get_gss_error(r->pool, minor_status, 
 		                      "gss_export_name() failed"));
     ret = SERVER_ERROR;
@@ -1013,6 +1108,7 @@ int kerb_authenticate_user(request_rec *r)
 		}
 		else {
 			retcode = conf->krb_fail_status;
+			/* XXX should SERVER_ERROR be overriden too? */
 		}
 	}
 #endif /* KRB5 */
