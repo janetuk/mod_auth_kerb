@@ -1,4 +1,4 @@
-1. Edit the makefile.include header
+1. ./configure
 2. make
 3. edit your httpd.conf, eg:
    <Directory "/var/www/secure">
