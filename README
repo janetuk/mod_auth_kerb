@@ -116,5 +116,4 @@ KrbSaveCredentials, the tickets will be retrieved into a ticket file or
 credential cache that will be available for the request handler. The ticket
 file will be removed after request is handled.
 
-$Id: README,v 1.8 2004/01/13
-14:31:53 kouril Exp $
+$Id$
