@@ -643,6 +643,8 @@ cleanup_gss_connection(void *data)
    if (gss_conn->server_creds != GSS_C_NO_CREDENTIAL)
       gss_release_cred(&minor_status, &gss_conn->server_creds);
 
+   gss_connection = NULL;
+
    return OK;
 }
 
@@ -863,7 +865,6 @@ authenticate_user_gss(request_rec *r,
 
   gss_release_buffer(&minor_status, &output_token);
 
-
 #if 0
   /* If the user comes from a realm specified by configuration don't include
       its realm name in the username so that the authorization routine could
@@ -896,6 +897,8 @@ end:
 
   if (client_name != GSS_C_NO_NAME)
      gss_release_name(&minor_status, &client_name);
+
+  cleanup_gss_connection(gss_connection);
 
   initial_return = ret;
   return ret;
