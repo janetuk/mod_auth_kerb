@@ -825,7 +825,7 @@ authenticate_user_gss(request_rec *r,
      goto end;
   }
 
-  major_status = gss_export_name(&minor_status, client_name, &output_token);
+  major_status = gss_display_name(&minor_status, client_name, &output_token, NULL);
   gss_release_name(&minor_status, &client_name); 
   if (GSS_ERROR(major_status)) {
     log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
