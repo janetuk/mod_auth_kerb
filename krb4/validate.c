@@ -6,7 +6,7 @@ int kerb4_password_validate(const char *user, const char *pass) {
 	if (ret != KSUCCESS)
 		return !KRB4_OK;
 
-	ret = krb_get_pw_in_tkt(user, "", realm, "krbtgt", realm,
+	ret = krb_get_pw_in_tkt((char *)user, "", realm, "krbtgt", realm,
 					DEFAULT_TKT_LIFE, (char *)pass);
 	switch (ret) {
 		case INTK_OK:

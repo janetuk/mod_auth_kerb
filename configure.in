@@ -46,8 +46,8 @@ AC_ARG_WITH(krb5,
 [  --with-krb5=DIR                     path to Kerberos 5 install],
 [
 	if test -d $withval ; then
-		CFLAGS="$CFLAGS -I$withval/include"
-		CPPFLAGS="$CPPFLAGS -I$withval/include"
+		CFLAGS="$CFLAGS -I$withval/include -I$withval/include/kerberosIV"
+		CPPFLAGS="$CPPFLAGS -I$withval/include -I$withval/include/kerberosIV"
 		LDFLAGS="$LDFLAGS -L$withval/lib"
 
 		case "$host" in
@@ -65,8 +65,8 @@ AC_ARG_WITH(krb5-include,
 [    --with-krb5-include=DIR           include path to Kerberos 5 install],
 [
 	if test -d $withval ; then
-		CFLAGS="$CFLAGS -I$withval"
-		CPPFLAGS="$CPPFLAGS -I$withval"
+		CFLAGS="$CFLAGS -I$withval -I$withval/include/kerberosIV"
+		CPPFLAGS="$CPPFLAGS -I$withval -I$withval/include/kerberosIV"
 	else
 		AC_ERROR(Specified Kerberos 5 directory doesn't exist.)
 	fi

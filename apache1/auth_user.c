@@ -1,9 +1,11 @@
 int kerb_authenticate_user(request_rec *r) {
+	const char *name;		/* AuthName specified */
 	const char *type;		/* AuthType specified */
 	int KerberosV5 = 0;		/* Kerberos V5 check enabled */
 	int KerberosV4 = 0;		/* Kerberos V4 check enabled */
 	const char *sent_pw;		/* Password sent by browser */
 	int res;			/* Response holder */
+	const char *t;			/* Decoded auth_line */
 	const char *authtype;		/* AuthType to send back to browser */
 	const char *auth_line = ap_table_get(r->headers_in,
 					(r->proxyreq == STD_PROXY)
@@ -30,21 +32,24 @@ int kerb_authenticate_user(request_rec *r) {
 		return DECLINED;
 	}
 
-	if (!ap_auth_name(r)) {
+	name = ap_auth_name(r);
+	if (!name) {
 		ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, r,
 				"need AuthName: %s", r->uri);
 		return HTTP_INTERNAL_SERVER_ERROR;
 	}
 
 	if (!auth_line) {
-		ap_table_set(r->err_headers_out, "WWW-Authenticate", "Kerberos");
+		ap_table_set(r->err_headers_out, "WWW-Authenticate",
+			ap_pstrcat(r->pool, "Basic realm=\"", name, "\"", NULL));
 		return HTTP_UNAUTHORIZED;
 	}
 
 	type = ap_getword_white(r->pool, &auth_line);
-	r->connection->user = ap_getword_nulls(r->pool, &auth_line, ':');
+	t = ap_pbase64decode(r->pool, auth_line);
+	r->connection->user = ap_getword_nulls(r->pool, &t, ':');
 	r->connection->ap_auth_type = "Kerberos";
-	sent_pw = ap_getword_white(r->pool, &auth_line);
+	sent_pw = ap_getword_white(r->pool, &t);
 
 #ifdef KRB5
 	if (KerberosV5) {

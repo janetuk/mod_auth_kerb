@@ -594,8 +594,8 @@ if test "${with_krb5+set}" = set; then
   withval="$with_krb5"
   
 	if test -d $withval ; then
-		CFLAGS="$CFLAGS -I$withval/include"
-		CPPFLAGS="$CPPFLAGS -I$withval/include"
+		CFLAGS="$CFLAGS -I$withval/include -I$withval/include/kerberosIV"
+		CPPFLAGS="$CPPFLAGS -I$withval/include -I$withval/include/kerberosIV"
 		LDFLAGS="$LDFLAGS -L$withval/lib"
 
 		case "$host" in
@@ -616,8 +616,8 @@ if test "${with_krb5_include+set}" = set; then
   withval="$with_krb5_include"
   
 	if test -d $withval ; then
-		CFLAGS="$CFLAGS -I$withval"
-		CPPFLAGS="$CPPFLAGS -I$withval"
+		CFLAGS="$CFLAGS -I$withval -I$withval/include/kerberosIV"
+		CPPFLAGS="$CPPFLAGS -I$withval -I$withval/include/kerberosIV"
 	else
 		{ echo "configure: error: Specified Kerberos 5 directory doesn't exist." 1>&2; exit 1; }
 	fi
