@@ -46,6 +46,10 @@
 
 #include "config.h"
 
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdarg.h>
+
 #define MODAUTHKERB_VERSION "5.0-rc6"
 
 #include <httpd.h>
@@ -86,8 +90,13 @@
 #include <netdb.h> /* gethostbyname() */
 #endif /* KRB4 */
 
+#ifdef WIN32
+#define vsnprintf _vsnprintf
+#define snprintf _snprintf
+#else
 /* XXX remove dependency on unistd.h ??? */
 #include <unistd.h>
+#endif
 
 #ifdef STANDARD20_MODULE_STUFF
 module AP_MODULE_DECLARE_DATA auth_kerb_module;
@@ -194,6 +203,41 @@ static const command_rec kerb_auth_cmds[] = {
 
    { NULL }
 };
+
+#ifdef WIN32
+int
+mkstemp(char *template)
+{
+    int start, i;
+    pid_t val;
+    val = getpid();
+    start = strlen(template) - 1;
+    while(template[start] == 'X') {
+	template[start] = '0' + val % 10;
+	val /= 10;
+	start--;
+    }
+    
+    do{
+	int fd;
+	fd = open(template, O_RDWR | O_CREAT | O_EXCL, 0600);
+	if(fd >= 0 || errno != EEXIST)
+	    return fd;
+	i = start + 1;
+	do{
+	    if(template[i] == 0)
+		return -1;
+	    template[i]++;
+	    if(template[i] == '9' + 1)
+		template[i] = 'a';
+	    if(template[i] <= 'z')
+		break;
+	    template[i] = 'a';
+	    i++;
+	}while(1);
+    }while(1);
+}
+#endif
 
 #if defined(KRB5) && !defined(HEIMDAL)
 /* Needed to work around problems with replay caches */
@@ -1097,7 +1141,11 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
   int ret;
   gss_name_t client_name = GSS_C_NO_NAME;
   gss_cred_id_t delegated_cred = GSS_C_NO_CREDENTIAL;
-  OM_uint32 (*accept_sec_token)();
+  OM_uint32 
+     (*accept_sec_token)(OM_uint32 *, gss_ctx_id_t *, const gss_cred_id_t,
+			 const gss_buffer_t, const gss_channel_bindings_t,
+			 gss_name_t *, gss_OID *, gss_buffer_t, OM_uint32 *,
+			 OM_uint32 *, gss_cred_id_t *);
   gss_OID_desc spnego_oid;
   gss_ctx_id_t context = GSS_C_NO_CONTEXT;
   gss_cred_id_t server_creds = GSS_C_NO_CREDENTIAL;
