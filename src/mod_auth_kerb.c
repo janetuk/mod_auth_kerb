@@ -921,7 +921,7 @@ int authenticate_user_krb5pwd(request_rec *r,
 end:
    log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
 	      "kerb_authenticate_user_krb5pwd ret=%d user=%s authtype=%s",
-	      ret, (MK_USER)?MK_USER:"(NULL)", MK_AUTH_TYPE);
+	      ret, (MK_USER)?MK_USER:"(NULL)", (MK_AUTH_TYPE)?MK_AUTH_TYPE:"(NULL)");
    if (client)
       krb5_free_principal(kcontext, client);
    if (ccache)
