@@ -138,6 +138,7 @@ typedef struct {
 	char *krb_auth_realms;
 	int krb_save_credentials;
 	int krb_verify_kdc;
+	char *krb_service_name;
 #ifdef KRB5
 	char *krb_5_keytab;
 	int krb_method_gssapi;
@@ -176,6 +177,9 @@ static const command_rec kerb_auth_cmds[] = {
 
    command("KrbVerifyKDC", ap_set_flag_slot, krb_verify_kdc,
      FLAG, "Verify tickets against keytab to prevent KDC spoofing attacks."),
+
+   command("KrbServiceName", ap_set_file_slot, krb_service_name,
+     TAKE1, "Service name to be used by Apache for authentication."),
 
 #ifdef KRB5
    command("Krb5Keytab", ap_set_file_slot, krb_5_keytab,
@@ -218,6 +222,7 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 
 	rec = (kerb_auth_config *) ap_pcalloc(p, sizeof(kerb_auth_config));
         ((kerb_auth_config *)rec)->krb_verify_kdc = 1;
+	((kerb_auth_config *)rec)->krb_service_name = "khttp";
 #ifdef KRB5
 	((kerb_auth_config *)rec)->krb_method_k5pass = 1;
 	((kerb_auth_config *)rec)->krb_method_gssapi = 1;
@@ -396,7 +401,8 @@ authenticate_user_krb4pwd(request_rec *r,
 
       ret = verify_krb4_user(r, (char *)sent_name, 
 	                     (sent_instance) ? sent_instance : "",
-	    		     (char *)realm, (char *)sent_pw, "khttp",
+	    		     (char *)realm, (char *)sent_pw,
+			     conf->krb_service_name,
 			     conf->krb_4_srvtab, conf->krb_verify_kdc);
       if (ret == 0)
 	 break;
@@ -669,7 +675,8 @@ int authenticate_user_krb5pwd(request_rec *r,
       if (code)
 	 continue;
 
-      code = verify_krb5_user(r, kcontext, client, ccache, sent_pw, "khttp",
+      code = verify_krb5_user(r, kcontext, client, ccache, sent_pw, 
+	    		      conf->krb_service_name, 
 	    		      keytab, conf->krb_verify_kdc);
       if (code == 0)
 	 break;
@@ -829,7 +836,7 @@ get_gss_creds(request_rec *r,
    gss_name_t server_name = GSS_C_NO_NAME;
    char buf[1024];
 
-   snprintf(buf, sizeof(buf), "%s/%s", "khttp", ap_get_server_name(r));
+   snprintf(buf, sizeof(buf), "%s/%s", conf->krb_service_name, ap_get_server_name(r));
 
    input_token.value = buf;
    input_token.length = strlen(buf) + 1;
