@@ -6,18 +6,18 @@ APXS = @APXS@
 CFLAGS = -I. @CFLAGS@
 LDFLAGS = @LDFLAGS@
 LIBS = @LIBS@
-INSTALL = @INSTALL@
+SUBDIRS = src
+MAKE_SUBDIR = for dir in $(SUBDIRS) ; do ( cd $$dir ; $(MAKE) $@ ) ; done
 
-all: mod_auth_kerb
-
-mod_auth_kerb: mod_auth_kerb.c
-	$(APXS) -c ${CFLAGS} ${LDFLAGS} ${LIBS} mod_auth_kerb.c
+all:
+	@$(MAKE_SUBDIR)
 
 install:
-	$(APXS) -c -i ${CFLAGS} ${LDFLAGS} ${LIBS} mod_auth_kerb.c
+	@$(MAKE_SUBDIR)
 
 clean:
-	/bin/rm -rf core *.o *.la *.lo *.slo *.so .libs
+	@$(MAKE_SUBDIR)
 
 distclean: clean
-	/bin/rm -f Makefile config.h config.status config.cache config.log mod_auth_kerb.c
+	@$(MAKE_SUBDIR)
+	/bin/rm -f Makefile config.h config.status config.cache config.log

@@ -101,7 +101,7 @@ typedef struct {
 /*************************************************************************** 
  Auth Configuration Initialization
  ***************************************************************************/
-static void *kerb_dir_config(AP_POOL *p, char *d)
+static void *kerb_dir_config(MK_POOL *p, char *d)
 {
 	static void *rec;
 	rec = (void *) ap_pcalloc(p, sizeof(kerb_auth_config));
@@ -478,18 +478,18 @@ int kerb4_password_validate(const char *user, const char *pass) {
 
 	ret = krb_get_lrealm(realm, 1);
 	if (ret != KSUCCESS)
-		return !KRB4_OK;
+		return 0;
 
 	ret = krb_get_pw_in_tkt((char *)user, "", realm, "krbtgt", realm,
 					DEFAULT_TKT_LIFE, (char *)pass);
 	switch (ret) {
 		case INTK_OK:
 		case INTK_W_NOTALL:
-			return KRB4_OK;
+			return 1;
 			break;
 
 		default:
-			return !KRB4_OK;
+			return 0;
 			break;
 	}
 }
@@ -609,7 +609,7 @@ int kerb_authenticate_user(request_rec *r) {
 
 #if defined(KRB5) && defined(KRB4)
 	if (KerberosV5 && KerberosV4first && retcode != OK) {
-		MK_AUTH_TYPE = "KerberosV5"
+		MK_AUTH_TYPE = "KerberosV5";
 		if (kerb5_password_validate(MK_USER, sent_pw)) {
 			retcode = OK;
 		}
@@ -633,7 +633,7 @@ int kerb_authenticate_user(request_rec *r) {
 /*************************************************************************** 
  Access Verification
  ***************************************************************************/
-int check_user_access(request_rec *r) {
+int kerb_check_user_access(request_rec *r) {
 	register int x;
 	const char *t, *w;
 	const MK_ARRAY_HEADER *reqs_arr = ap_requires(r);
