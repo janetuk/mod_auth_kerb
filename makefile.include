@@ -1,7 +1,7 @@
 # 
 # Version for apache 2.0.x is built by default. Uncomment following line if 
 # you're using apache 1.3.x, (don't change if you're using apache 2.0.x.)
-#DEFS = -DAPXS1
+DEFS = -DAPXS1
 
 # Set path to the apxs command if it's not in reachable in standard $PATH.
 # This command should be found in the bin directory of apache installation 
@@ -24,3 +24,9 @@ KRB5_ROOT = /usr/local/krb5
 # Uncomment and edit following line if your krb4 libraries aren't located in 
 # the krb5 tree
 #KRB4_ROOT = /software/krb4-1.2.2
+
+#
+# Uncomment following line if you only want to build the spnegokrb5 library
+# and don't build the apache module (eg. if you're building the mozilla browser
+# with support for the Negotiate authentication)
+#SPNEGO_ONLY = yes
