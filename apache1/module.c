@@ -18,4 +18,11 @@ module MODULE_VAR_EXPORT kerb_auth_module = {
 	NULL,				/*      process initialization        */
 	NULL,				/*      process exit/cleanup          */
 	NULL				/* [ 1] post read_request handling    */
+#ifdef EAPI
+	,				/*            EAPI Additions          */
+	NULL,				/* EAPI add module                    */
+	NULL,				/* EAPI remove module                 */
+	NULL,				/* EAPI rewrite command               */
+	NULL				/* EAPI new connection                */
+#endif /* EAPI */
 };

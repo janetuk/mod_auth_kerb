@@ -4,6 +4,9 @@
 	* apache2/module.c:
 	Prettied up module config and documented it a tad better.
 
+	* apache1/module.c:
+	Added EAPI define check and additional fields.
+
 2002-09-02  Daniel Henninger  <daniel@ncsu.edu>
 
 	* apache1/auth_cmds.c:
