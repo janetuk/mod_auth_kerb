@@ -1020,7 +1020,8 @@ get_gss_creds(request_rec *r,
    {
       krb5_gss_cred_id_t gss_creds = (krb5_gss_cred_id_t) *server_creds;
 
-      if (gss_creds && gss_creds->rcache && gss_creds->ops->type &&
+      if (gss_creds && gss_creds->rcache && gss_creds->rcache->ops &&
+	  gss_creds->rcache->ops->type &&  
 	  memcmp(gss_creds->rcache->ops->type, "dfl", 3) == 0)
           /* Override the rcache operations */
 	 gss_creds->rcache->ops = &mod_auth_kerb_rc_ops;
