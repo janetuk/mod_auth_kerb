@@ -56,7 +56,6 @@ module AP_MODULE_DECLARE_DATA auth_kerb_module;
  Auth Configuration Structure
  ***************************************************************************/
 typedef struct {
-	int krb_auth_enable;
 	char *krb_auth_realms;
 	int krb_fail_status;
 	char *krb_force_instance;
@@ -89,9 +88,6 @@ typedef struct {
 #endif
 
 static const command_rec kerb_auth_cmds[] = {
-   command("AuthKerberos", ap_set_flag_slot, krb_auth_enable,
-     FLAG, "Permit Kerberos auth without AuthType requirement."),
-
    command("KrbAuthRealm", ap_set_string_slot, krb_auth_realms,
      ITERATE, "Realms to attempt authentication against (can be multiple)."),
 
@@ -166,7 +162,6 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 	kerb_auth_config *rec;
 
 	rec = (kerb_auth_config *) ap_pcalloc(p, sizeof(kerb_auth_config));
-	((kerb_auth_config *)rec)->krb_auth_enable = 1;
 	((kerb_auth_config *)rec)->krb_fail_status = HTTP_UNAUTHORIZED;
 #ifdef KRB5
 	((kerb_auth_config *)rec)->krb_method_k5pass = 1;
@@ -489,7 +484,7 @@ int authenticate_user_krb5pwd(request_rec *r,
 {
    const char      *sent_pw = NULL; 
    const char      *realms = NULL;
-   krb5_context    kcontext;
+   krb5_context    kcontext = NULL;
    krb5_error_code code;
    krb5_principal  client = NULL;
    krb5_ccache     ccache = NULL;
@@ -537,7 +532,11 @@ int authenticate_user_krb5pwd(request_rec *r,
 	          		           ap_getword_white(r->pool, &realms))))
 	 continue;
 
+#if 0
       code = krb5_parse_name(kcontext, MK_USER, &client);
+#else
+      code = krb5_parse_name(kcontext, "kouril", &client);
+#endif
       if (code)
 	 continue;
 
@@ -886,6 +885,8 @@ note_kerb_auth_failure(request_rec *r, const kerb_auth_config *conf)
    /* get the user realm specified in .htaccess */
    auth_name = ap_auth_name(r);
 
+   /* XXX check AuthType */
+
    /* XXX should the WWW-Authenticate header be cleared first? */
 #ifdef KRB5
    if (conf->krb_method_gssapi)
@@ -910,28 +911,19 @@ int kerb_authenticate_user(request_rec *r)
    const char *auth_type = NULL;
    const char *auth_line = NULL;
    const char *type = NULL;
+   int use_krb5 = 0, use_krb4 = 0;
    int ret;
 
    /* get the type specified in .htaccess */
    type = ap_auth_type(r);
 
-#ifdef KRB5
-   if (type != NULL && strcasecmp(type, "KerberosV5") == 0) {
-      log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
-	    "The use of KerberosV5 in AuthType is obsolete, please consider using the AuthKerberos option");
-      conf->krb_auth_enable = 1;
-   }
-#endif
-
-#ifdef KRB4
-   if (type != NULL && strcasecmp(type, "KerberosV4") == 0) {
-      log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
-	    "The use of KerberosV4 in AuthType is obsolete, please consider using the AuthKerberos option");
-      conf->krb_auth_enable = 1;
-   }
-#endif
-
-   if (!conf->krb_auth_enable)
+   if (type && strcasecmp(type, "Kerberos") == 0)
+      use_krb5 = use_krb4 = 1;
+   else if(type && strcasecmp(type, "KerberosV5") == 0)
+      use_krb4 = 0;
+   else if (type && strcasecmp(type, "KerberosV4") == 0)
+      use_krb5 = 0;
+   else
       return DECLINED;
 
    /* get what the user sent us in the HTTP header */
@@ -945,17 +937,17 @@ int kerb_authenticate_user(request_rec *r)
    ret = HTTP_UNAUTHORIZED;
 
 #ifdef KRB5
-   if (conf->krb_method_gssapi &&
+   if (use_krb5 && conf->krb_method_gssapi &&
        strcasecmp(auth_type, "GSS-Negotiate") == 0) {
       ret = authenticate_user_gss(r, conf, auth_line);
-   } else if (conf->krb_method_k5pass &&
+   } else if (use_krb5 && conf->krb_method_k5pass &&
 	      strcasecmp(auth_type, "Basic") == 0) {
        ret = authenticate_user_krb5pwd(r, conf, auth_line);
    }
 #endif
 
 #ifdef KRB4
-   if (ret == HTTP_UNAUTHORIZED && conf->krb_method_k4pass &&
+   if (ret == HTTP_UNAUTHORIZED && use_krb4 && conf->krb_method_k4pass &&
        strcasecmp(auth_type, "Basic") == 0)
       ret = authenticate_user_krb4pwd(r, conf, auth_line);
 #endif
