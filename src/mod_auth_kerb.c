@@ -120,6 +120,7 @@ typedef struct {
 	int krb_verify_kdc;
 	char *krb_service_name;
 	int krb_authoritative;
+	int krb_delegate_basic;
 #ifdef KRB5
 	char *krb_5_keytab;
 	int krb_method_gssapi;
@@ -167,7 +168,10 @@ static const command_rec kerb_auth_cmds[] = {
      TAKE1, "Service name to be used by Apache for authentication."),
 
    command("KrbAuthoritative", ap_set_flag_slot, krb_authoritative,
-     FLAG, "Set to 'off' to allow access control to be passed along to lower modules if the UserID is not known to this module."),
+     FLAG, "Set to 'off' to allow access control to be passed along to lower modules iff the UserID is not known to this module."),
+
+   command("KrbDelegateBasic", ap_set_flag_slot, krb_delegate_basic,
+     FLAG, "Always offer Basic authentication regardless of KrbMethodK5Pass and pass on authentication to lower modules if Basic headers arrive."),
 
 #ifdef KRB5
    command("Krb5Keytab", ap_set_file_slot, krb_5_keytab,
@@ -231,6 +235,7 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
         ((kerb_auth_config *)rec)->krb_verify_kdc = 1;
 	((kerb_auth_config *)rec)->krb_service_name = "HTTP";
 	((kerb_auth_config *)rec)->krb_authoritative = 1;
+	((kerb_auth_config *)rec)->krb_delegate_basic = 0;
 #ifdef KRB5
 	((kerb_auth_config *)rec)->krb_method_k5pass = 1;
 	((kerb_auth_config *)rec)->krb_method_gssapi = 1;
@@ -1249,7 +1254,7 @@ set_kerb_auth_headers(request_rec *r, const kerb_auth_config *conf,
 	          ap_pstrcat(r->pool, "Negotiate ", negotiate_ret_value, NULL);
       ap_table_add(r->err_headers_out, header_name, negoauth_param);
    }
-   if (use_krb5pwd && conf->krb_method_k5pass) {
+   if ((use_krb5pwd && conf->krb_method_k5pass) || conf->krb_delegate_basic) {
       ap_table_add(r->err_headers_out, header_name,
 		   ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
       set_basic = 1;
@@ -1257,7 +1262,8 @@ set_kerb_auth_headers(request_rec *r, const kerb_auth_config *conf,
 #endif
 
 #ifdef KRB4
-   if (use_krb4 && conf->krb_method_k4pass && !set_basic)
+   if (!set_basic && 
+       ((use_krb4 && conf->krb_method_k4pass) || conf->krb_delegate_basic))
       ap_table_add(r->err_headers_out, header_name,
 		  ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
 #endif
@@ -1298,6 +1304,17 @@ int kerb_authenticate_user(request_rec *r)
       return HTTP_UNAUTHORIZED;
    }
    auth_type = ap_getword_white(r->pool, &auth_line);
+
+   /* If we are delegating Basic to other modules, DECLINE the request */
+   if (conf->krb_delegate_basic &&
+#ifdef KRB5
+       !conf->krb_method_k5pass &&
+#endif
+#ifdef KRB4
+       !conf->krb_method_k4pass &&
+#endif
+       (strcasecmp(auth_type, "Basic") == 0))
+       return DECLINED;
 
    if (already_succeeded(r))
       return last_return;
