@@ -74,8 +74,6 @@ send_reject (OM_uint32 *minor_status,
 	     gss_buffer_t output_token)
 {
     NegTokenTarg targ;
-    u_char *buf;
-    size_t buf_size;
     OM_uint32 ret;
 
     targ.negResult = malloc(sizeof(*targ.negResult));
@@ -84,22 +82,17 @@ send_reject (OM_uint32 *minor_status,
 	return GSS_S_FAILURE;
     }
     *(targ.negResult) = reject;
+
     targ.supportedMech = NULL;
     targ.responseToken = NULL;
     targ.mechListMIC   = NULL;
     
-    ret = code_NegTokenArg (minor_status, &targ, &buf, &buf_size);
+    ret = code_NegTokenArg (minor_status, &targ, 
+	                    (unsigned char**) &output_token->value, &output_token->length);
     free_NegTokenTarg(&targ);
     if (ret)
 	return ret;
 
-    ret = gssapi_spnego_encapsulate(minor_status,
-			            buf, buf_size,
-			            output_token,
-			            GSS_SPNEGO_MECH);
-    free(buf);
-    if (ret)
-	return ret;
     return GSS_S_BAD_MECH;
 }
 
@@ -109,8 +102,6 @@ send_accept (OM_uint32 *minor_status,
 	     gss_buffer_t mech_token)
 {
     NegTokenTarg targ;
-    u_char *buf;
-    size_t buf_size;
     OM_uint32 ret;
 
     memset(&targ, 0, sizeof(targ));
@@ -153,17 +144,12 @@ send_accept (OM_uint32 *minor_status,
 	targ.responseToken = NULL;
     }
 
-    ret = code_NegTokenArg (minor_status, &targ, &buf, &buf_size);
+    ret = code_NegTokenArg (minor_status, &targ, 
+	                    (unsigned char**) &output_token->value, &output_token->length);
     free_NegTokenTarg(&targ);
     if (ret)
 	return ret;
 
-    ret = gssapi_spnego_encapsulate(minor_status,
-			            buf, buf_size,
-			            output_token,
-			      	    GSS_SPNEGO_MECH);
-    if (ret)
-	return ret;
     return GSS_S_COMPLETE;
 }
 
