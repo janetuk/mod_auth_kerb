@@ -510,7 +510,7 @@ end:
  * we had to use this call instead, which is only a bit modified version of
  * krb5_verify_init_creds() */
 static krb5_error_code
-verify_krb5_init_creds(krb5_context context, krb5_creds *creds,
+verify_krb5_init_creds(request_rec *r, krb5_context context, krb5_creds *creds,
                        krb5_principal ap_req_server, krb5_keytab ap_req_keytab)
 {
    krb5_error_code ret;
@@ -519,6 +519,7 @@ verify_krb5_init_creds(krb5_context context, krb5_creds *creds,
    krb5_creds *new_creds = NULL;
    krb5_auth_context auth_context = NULL;
    krb5_keytab keytab = NULL;
+   char *server_name;
 
    memset(&req, 0, sizeof(req));
 
@@ -530,16 +531,35 @@ verify_krb5_init_creds(krb5_context context, krb5_creds *creds,
       keytab = ap_req_keytab;
 
    ret = krb5_cc_resolve(context, "MEMORY:", &local_ccache);
-   if (ret)
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	         "krb5_cc_resolve() failed when verifying KDC");
       return ret;
+   }
 
    ret = krb5_cc_initialize(context, local_ccache, creds->client);
-   if (ret)
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	         "krb5_cc_initialize() failed when verifying KDC");
       goto end;
+   }
 
    ret = krb5_cc_store_cred (context, local_ccache, creds);
-   if (ret)
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	         "krb5_cc_initialize() failed when verifying KDC");
       goto end;
+   }
+   
+   ret = krb5_unparse_name(context, ap_req_server, &server_name);
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	         "krb5_unparse_name() failed when verifying KDC");
+      goto end;
+   }
+   log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	      "Using principal %s to verify authenticity of KDC", server_name);
+   free(server_name);
 
    if (!krb5_principal_compare (context, ap_req_server, creds->server)) {
       krb5_creds match_cred;
@@ -551,25 +571,39 @@ verify_krb5_init_creds(krb5_context context, krb5_creds *creds,
 
       ret = krb5_get_credentials (context, 0, local_ccache, 
 	                          &match_cred, &new_creds);
-      if (ret)
+      if (ret) {
+	 log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	            "krb5_get_credentials() failed when verifying KDC");
 	 goto end;
+      }
       creds = new_creds;
    }
 
    ret = krb5_mk_req_extended (context, &auth_context, 0, NULL, creds, &req);
-   if (ret)
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	         "krb5_mk_req_extended() failed when verifying KDC");
       goto end;
+   }
 
    krb5_auth_con_free (context, auth_context);
    auth_context = NULL;
    ret = krb5_auth_con_init(context, &auth_context);
-   if (ret)
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	         "krb5_auth_con_init() failed when verifying KDC");
       goto end;
+   }
    /* use KRB5_AUTH_CONTEXT_DO_SEQUENCE to skip replay cache checks */
    krb5_auth_con_setflags(context, auth_context, KRB5_AUTH_CONTEXT_DO_SEQUENCE);
 
    ret = krb5_rd_req (context, &auth_context, &req, ap_req_server,
 		      keytab, 0, NULL);
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	         "krb5_rd_req() failed when verifying KDC");
+      goto end;
+   }
 
 end:
 #ifdef HEIMDAL
@@ -600,12 +634,20 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
    krb5_principal server = NULL;
    krb5_error_code ret;
    krb5_ccache ret_ccache = NULL;
+   char *name = NULL;
 
    /* XXX error messages shouldn't be logged here (and in the while() loop in
     * authenticate_user_krb5pwd() as weell), in order to avoid confusing log
     * entries when using multiple realms */
 
    memset(&creds, 0, sizeof(creds));
+
+   ret = krb5_unparse_name(context, principal, &name);
+   if (ret == 0) {
+      log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	         "Trying to get TGT for user %s", name);
+      free(name);
+   }
 
    ret = krb5_get_init_creds_password(context, &creds, principal, 
 	 			      (char *)password, NULL,
@@ -614,7 +656,7 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	         "krb5_get_init_creds_password() failed: %s",
 		 krb5_get_err_text(context, ret));
-      return ret;
+      goto end;
    }
 
    ret = krb5_sname_to_principal(context, ap_get_server_name(r), service, 
@@ -639,7 +681,7 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
    */
 
    if (krb_verify_kdc &&
-       (ret = verify_krb5_init_creds(context, &creds, server, keytab))) {
+       (ret = verify_krb5_init_creds(r, context, &creds, server, keytab))) {
        log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	          "failed to verify krb5 credentials: %s",
 		  krb5_get_err_text(context, ret));
