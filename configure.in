@@ -44,14 +44,22 @@ AC_ARG_WITH(krb5,
 if test "x$with_krb5" != "xno" ; then
   AC_MSG_CHECKING([for Kerberos5 installation])
   if test "x$with_krb5" != "x"; then
-     if test ! -x "$with_krb5/bin/krb5-config"; then
-        AC_MSG_ERROR([failed to find krb5-config in $with_krb5/bin])
+     if test -x "$with_krb5/bin/krb5-config"; then
+        krb5_config_command="$with_krb5/bin/krb5-config"
+     else 
+        # quick fix for OpenBSD installations where krb5-config is missing.
+        # OpenBSD uses Heimdal, so add libs for Heimdal (libcrypto from
+        # Openssl is supposed to be installed somewhere in the system)
+        KRB5_CPPFLAGS="-I$with_krb5/include"
+        KRB5_LDFLAGS="-L$with_krb5/lib -lkrb5 -lasn1 -lroken -lcrypt -lcrypto"
+        krb5_config_command=""
      fi
-     krb5_config_command="$with_krb5/bin/krb5-config"
   fi
 
-  KRB5_CPPFLAGS=`$krb5_config_command --cflags gssapi 2>/dev/null`
-  KRB5_LDFLAGS=`$krb5_config_command --libs gssapi 2>/dev/null`
+  if test -n "$krb5_config_command"; then
+     KRB5_CPPFLAGS=`$krb5_config_command --cflags gssapi 2>/dev/null`
+     KRB5_LDFLAGS=`$krb5_config_command --libs gssapi 2>/dev/null`
+  fi
   if test "x$KRB5_LDFLAGS" = "x"; then
      with_krb5=no
      AC_MSG_RESULT(no)
