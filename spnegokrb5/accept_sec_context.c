@@ -162,7 +162,6 @@ send_accept (OM_uint32 *minor_status,
 			            buf, buf_size,
 			            output_token,
 			      	    GSS_SPNEGO_MECH);
-    free(buf);
     if (ret)
 	return ret;
     return GSS_S_COMPLETE;
