@@ -558,7 +558,7 @@ verify_krb5_init_creds(request_rec *r, krb5_context context, krb5_creds *creds,
       goto end;
    }
    log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
-	      "Using principal %s to verify authenticity of KDC", server_name);
+	      "Trying to verify authenticity of KDC using principal %s", server_name);
    free(server_name);
 
    if (!krb5_principal_compare (context, ap_req_server, creds->server)) {
@@ -1209,6 +1209,10 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
      }
      sprintf(ktname, "KRB5_KTNAME=%s", conf->krb_5_keytab);
      putenv(ktname);
+#ifdef HEIMDAL
+     /* Seems to be also supported by latest MIT */
+     gsskrb5_register_acceptor_identity(conf->krb_5_keytab);
+#endif
   }
 
   ret = get_gss_creds(r, conf, &server_creds);
