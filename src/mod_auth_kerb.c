@@ -136,6 +136,7 @@ module AP_MODULE_DECLARE_DATA auth_kerb_module;
 typedef struct {
 	char *krb_auth_realms;
 	int krb_save_credentials;
+	int krb_verify_kdc;
 #ifdef KRB5
 	char *krb_5_keytab;
 	int krb_method_gssapi;
@@ -171,6 +172,9 @@ static const command_rec kerb_auth_cmds[] = {
 
    command("KrbSaveCredentials", ap_set_flag_slot, krb_save_credentials,
      FLAG, "Save and store credentials/tickets retrieved during auth."),
+
+   command("KrbVerifyKDC", ap_set_flag_slot, krb_verify_kdc,
+     FLAG, "Verify tickets against keytab to prevent KDC spoofing attacks."),
 
 #ifdef KRB5
    command("Krb5Keytab", ap_set_file_slot, krb_5_keytab,
@@ -212,6 +216,7 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 	kerb_auth_config *rec;
 
 	rec = (kerb_auth_config *) ap_pcalloc(p, sizeof(kerb_auth_config));
+        ((kerb_auth_config *)rec)->krb_verify_kdc = 1;
 #ifdef KRB5
 	((kerb_auth_config *)rec)->krb_method_k5pass = 1;
 	((kerb_auth_config *)rec)->krb_method_gssapi = 1;
@@ -259,7 +264,7 @@ void log_rerror(const char *file, int line, int level, int status,
  ***************************************************************************/
 static int
 verify_krb4_user(request_rec *r, char *name, char *instance, char *realm,
-      		 char *password, char *linstance, char *srvtab)
+      		 char *password, char *linstance, char *srvtab, int krb_verify_kdc)
 {
    int ret;
    char *phost;
@@ -278,6 +283,9 @@ verify_krb4_user(request_rec *r, char *name, char *instance, char *realm,
 		 krb_get_err_text(ret));
       return ret;
    }
+
+   if (!krb_verify_kdc)
+      return ret;
 
    hostname = ap_get_server_name(r);
 
@@ -388,7 +396,7 @@ authenticate_user_krb4pwd(request_rec *r,
       ret = verify_krb4_user(r, (char *)sent_name, 
 	                     (sent_instance) ? sent_instance : "",
 	    		     (char *)realm, (char *)sent_pw, "khttp",
-			     conf->krb_4_srvtab);
+			     conf->krb_4_srvtab, conf->krb_verify_kdc);
       if (ret == 0)
 	 break;
    } while (realms && *realms);
@@ -429,7 +437,7 @@ end:
 static krb5_error_code
 verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
       		 krb5_ccache ccache, const char *password, const char *service,
-		 krb5_keytab keytab)
+		 krb5_keytab keytab, int krb_verify_kdc)
 {
    krb5_creds creds;
    krb5_principal server = NULL;
@@ -450,7 +458,7 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
       goto end;
 
    krb5_verify_init_creds_opt_init(&opt);
-   krb5_verify_init_creds_opt_set_ap_req_nofail(&opt, 1);
+   krb5_verify_init_creds_opt_set_ap_req_nofail(&opt, krb_verify_kdc);
 
    ret = krb5_verify_init_creds(context, &creds, server, keytab, NULL, &opt);
    if (ret)
@@ -661,7 +669,7 @@ int authenticate_user_krb5pwd(request_rec *r,
 	 continue;
 
       code = verify_krb5_user(r, kcontext, client, ccache, sent_pw, "khttp",
-	    		      keytab);
+	    		      keytab, conf->krb_verify_kdc);
       if (code == 0)
 	 break;
 
