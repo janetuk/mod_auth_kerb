@@ -1048,6 +1048,8 @@ authenticate_user_gss(request_rec *r,
 	        "%s", get_gss_error(r->pool, major_status, minor_status,
 		                    "gss_accept_sec_context() failed"));
      ret = HTTP_UNAUTHORIZED;
+     /* XXX in this case the server hasn't to return to the client the
+      * Negotiate method again! */
      goto end;
   }
 
