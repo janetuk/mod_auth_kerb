@@ -924,7 +924,7 @@ authenticate_user_gss(request_rec *r,
      ap_base64encode(token, output_token.value, output_token.length);
      token[len] = '\0';
      ap_table_set(r->err_headers_out, "WWW-Authenticate",
-	          ap_pstrcat(r->pool, "GSS-Negotiate ", token, NULL));
+	          ap_pstrcat(r->pool, "Negotiate ", token, NULL));
      gss_release_buffer(&minor_status2, &output_token);
   }
 
@@ -994,7 +994,7 @@ note_kerb_auth_failure(request_rec *r, const kerb_auth_config *conf,
    /* XXX should the WWW-Authenticate header be cleared first? */
 #ifdef KRB5
    if (use_krb5 && conf->krb_method_gssapi)
-      ap_table_add(r->err_headers_out, "WWW-Authenticate", "GSS-Negotiate ");
+      ap_table_add(r->err_headers_out, "WWW-Authenticate", "Negotiate ");
    if (use_krb5 && conf->krb_method_k5pass) {
       ap_table_add(r->err_headers_out, "WWW-Authenticate",
                    ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
@@ -1044,7 +1044,7 @@ int kerb_authenticate_user(request_rec *r)
 
 #ifdef KRB5
    if (use_krb5 && conf->krb_method_gssapi &&
-       strcasecmp(auth_type, "GSS-Negotiate") == 0) {
+       strcasecmp(auth_type, "Negotiate") == 0) {
       ret = authenticate_user_gss(r, conf, auth_line);
    } else if (use_krb5 && conf->krb_method_k5pass &&
 	      strcasecmp(auth_type, "Basic") == 0) {
