@@ -6,7 +6,7 @@ KRB4_LDFLAGS = @KRB4_LDFLAGS@
 LIB_resolv = @LIB_resolv@
 DO_KRB5 = @DO_KRB5@
 
-CPPFLAGS = $(KRB5_CPPFLAGS) $(KRB4_CPPFLAGS) $(DEFS) -I.
+CPPFLAGS = $(KRB5_CPPFLAGS) $(KRB4_CPPFLAGS) $(DEFS) -I. -Ispnegokrb5
 ifdef DO_KRB5
 	LDFLAGS = -Lspnegokrb5 -lspnegokrb5 $(KRB5_LDFLAGS) $(LIB_resolv)
 else
