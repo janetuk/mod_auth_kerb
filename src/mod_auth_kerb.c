@@ -215,7 +215,96 @@ static const char *kerb_set_fail_slot(cmd_parms *cmd, void *struct_ptr,
 }
 #endif
 
+#ifdef KRB4
+int kerb4_password_validate(request_rec *r, const char *user, const char *pass)
+{
+	kerb_auth_config *conf =
+		(kerb_auth_config *)ap_get_module_config(r->per_dir_config,
+					&kerb_auth_module);
+	int ret;
+	int lifetime = DEFAULT_TKT_LIFE;
+	char *c, *tfname;
+	char *username = NULL;
+	char *instance = NULL;
+	char *realm = NULL;
 
+	username = (char *)ap_pstrdup(r->pool, user);
+	if (!username) {
+		return 0;
+	}
+
+	instance = strchr(username, '.');
+	if (instance) {
+		*instance++ = '\0';
+	}
+	else {
+		instance = "";
+	}
+
+	realm = strchr(username, '@');
+	if (realm) {
+		*realm++ = '\0';
+	}
+	else {
+		realm = "";
+	}
+
+	if (conf->krb_lifetime) {
+		lifetime = atoi(conf->krb_lifetime);
+	}
+
+	if (conf->krb_force_instance) {
+		instance = conf->krb_force_instance;
+	}
+
+	if (conf->krb_save_credentials) {
+		tfname = (char *)malloc(sizeof(char) * MAX_STRING_LEN);
+		sprintf(tfname, "%s/k5cc_ap_%s",
+			conf->krb_tmp_dir ? conf->krb_tmp_dir : "/tmp",
+			MK_USER);
+
+		if (!strcmp(instance, "")) {
+			tfname = strcat(tfname, ".");
+			tfname = strcat(tfname, instance);
+		}
+
+		if (!strcmp(realm, "")) {
+			tfname = strcat(tfname, ".");
+			tfname = strcat(tfname, realm);
+		}
+
+		for (c = tfname + strlen(conf->krb_tmp_dir ? conf->krb_tmp_dir :
+				"/tmp") + 1; *c; c++) {
+			if (*c == '/')
+				*c = '.';
+		}
+
+		krb_set_tkt_string(tfname);
+	}
+
+	if (!strcmp(realm, "")) {
+		realm = (char *)malloc(sizeof(char) * (REALM_SZ + 1));
+		ret = krb_get_lrealm(realm, 1);
+		if (ret != KSUCCESS)
+			return 0;
+	}
+
+	ret = krb_get_pw_in_tkt((char *)user, instance, realm, "krbtgt", realm,
+					lifetime, (char *)pass);
+	switch (ret) {
+		case INTK_OK:
+		case INTK_W_NOTALL:
+			return 1;
+			break;
+
+		default:
+			return 0;
+			break;
+	}
+}
+#endif /* KRB4 */
+
+#ifdef KRB5
 #ifndef HEIMDAL
 krb5_error_code
 krb5_verify_user(krb5_context context, krb5_principal principal,
@@ -272,7 +361,6 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
 /*************************************************************************** 
  Username/Password Validation
  ***************************************************************************/
-#ifdef KRB5
 static void
 krb5_cache_cleanup(void *data)
 {
@@ -416,6 +504,7 @@ store_krb5_creds(krb5_context kcontext,
    return OK;
 }
 
+
 int authenticate_user_krb5pwd(request_rec *r,
 	                      kerb_auth_config *conf,
 			      const char *auth_line)
@@ -506,104 +595,8 @@ end:
 
    return ret;
 }
-#endif /* KRB5 */
-
-#ifdef KRB4
-int kerb4_password_validate(request_rec *r, const char *user, const char *pass)
-{
-	kerb_auth_config *conf =
-		(kerb_auth_config *)ap_get_module_config(r->per_dir_config,
-					&kerb_auth_module);
-	int ret;
-	int lifetime = DEFAULT_TKT_LIFE;
-	char *c, *tfname;
-	char *username = NULL;
-	char *instance = NULL;
-	char *realm = NULL;
-
-	username = (char *)ap_pstrdup(r->pool, user);
-	if (!username) {
-		return 0;
-	}
-
-	instance = strchr(username, '.');
-	if (instance) {
-		*instance++ = '\0';
-	}
-	else {
-		instance = "";
-	}
-
-	realm = strchr(username, '@');
-	if (realm) {
-		*realm++ = '\0';
-	}
-	else {
-		realm = "";
-	}
-
-	if (conf->krb_lifetime) {
-		lifetime = atoi(conf->krb_lifetime);
-	}
-
-	if (conf->krb_force_instance) {
-		instance = conf->krb_force_instance;
-	}
-
-	if (conf->krb_save_credentials) {
-		tfname = (char *)malloc(sizeof(char) * MAX_STRING_LEN);
-		sprintf(tfname, "%s/k5cc_ap_%s",
-			conf->krb_tmp_dir ? conf->krb_tmp_dir : "/tmp",
-			MK_USER);
-
-		if (!strcmp(instance, "")) {
-			tfname = strcat(tfname, ".");
-			tfname = strcat(tfname, instance);
-		}
-
-		if (!strcmp(realm, "")) {
-			tfname = strcat(tfname, ".");
-			tfname = strcat(tfname, realm);
-		}
-
-		for (c = tfname + strlen(conf->krb_tmp_dir ? conf->krb_tmp_dir :
-				"/tmp") + 1; *c; c++) {
-			if (*c == '/')
-				*c = '.';
-		}
-
-		krb_set_tkt_string(tfname);
-	}
-
-	if (!strcmp(realm, "")) {
-		realm = (char *)malloc(sizeof(char) * (REALM_SZ + 1));
-		ret = krb_get_lrealm(realm, 1);
-		if (ret != KSUCCESS)
-			return 0;
-	}
-
-	ret = krb_get_pw_in_tkt((char *)user, instance, realm, "krbtgt", realm,
-					lifetime, (char *)pass);
-	switch (ret) {
-		case INTK_OK:
-		case INTK_W_NOTALL:
-			return 1;
-			break;
-
-		default:
-			return 0;
-			break;
-	}
-}
-#endif /* KRB4 */
 
 
-
-
-/*************************************************************************** 
- GSSAPI Validation
- ***************************************************************************/
-#ifdef KRB5
 static const char *
 get_gss_error(pool *p, OM_uint32 error_status, char *prefix)
 {
@@ -632,14 +625,67 @@ get_gss_error(pool *p, OM_uint32 error_status, char *prefix)
    return (ap_pstrdup(p, buf));
 }
 
+
+static int
+store_gss_creds(request_rec *r, kerb_auth_config *conf, char *princ_name,
+                gss_cred_id_t delegated_cred)
+{
+   OM_uint32 maj_stat, min_stat;
+   krb5_principal princ = NULL;
+   krb5_ccache ccache = NULL;
+   krb5_error_code problem;
+   krb5_context context;
+   int ret = SERVER_ERROR;
+
+   problem = krb5_init_context(&context);
+   if (problem) {
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+	    "Cannot initialize krb5 context");
+      return SERVER_ERROR;
+   }
+
+   problem = krb5_parse_name(context, princ_name, &princ);
+   if (problem) {
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, r, 
+	 "Cannot parse delegated username (%s)", krb5_get_err_text(context, problem));
+      goto end;
+   }
+
+   problem = create_krb5_ccache(context, r, conf, princ, &ccache);
+   if (problem) {
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+	 "Cannot create krb5 ccache (%s)", krb5_get_err_text(context, problem));
+      goto end;
+   }
+
+   maj_stat = gss_krb5_copy_ccache(&min_stat, delegated_cred, ccache);
+   if (GSS_ERROR(maj_stat)) {
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+	 "Cannot store delegated credential (%s)", 
+	 get_gss_error(r->pool, min_stat, "gss_krb5_copy_ccache"));
+      goto end;
+   }
+
+   krb5_cc_close(context, ccache);
+   ccache = NULL;
+   ret = 0;
+
+end:
+   if (princ)
+      krb5_free_principal(context, princ);
+   if (ccache)
+      krb5_cc_destroy(context, ccache);
+   krb5_free_context(context);
+   return ret;
+}
+
 static int
 get_gss_creds(request_rec *r,
               kerb_auth_config *conf,
 	      gss_cred_id_t *server_creds)
 {
-   int ret = 0;
    gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;
-   OM_uint32 major_status, minor_status;
+   OM_uint32 major_status, minor_status, minor_status2;
    gss_name_t server_name = GSS_C_NO_NAME;
 
    if (conf->service_name) {
@@ -658,8 +704,7 @@ get_gss_creds(request_rec *r,
       ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
 	            "%s", get_gss_error(r->pool, minor_status,
 		    "gss_import_name() failed"));
-      ret = SERVER_ERROR;
-      goto fail;
+      return SERVER_ERROR;
    }
    
 #ifdef KRB5
@@ -670,6 +715,7 @@ get_gss_creds(request_rec *r,
    major_status = gss_acquire_cred(&minor_status, server_name, GSS_C_INDEFINITE,
 			           GSS_C_NO_OID_SET, GSS_C_ACCEPT,
 				   server_creds, NULL, NULL);
+   gss_release_name(&minor_status2, &server_name);
 #ifdef KRB5
    if (conf->krb_5_keytab)
       unsetenv("KRB5_KTNAME");
@@ -678,16 +724,10 @@ get_gss_creds(request_rec *r,
       ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
 	           "%s", get_gss_error(r->pool, minor_status,
 		 		       "gss_acquire_cred() failed"));
-      ret = SERVER_ERROR;
-      goto fail;
+      return SERVER_ERROR;
    }
    
    return 0;
-
-fail:
-   /* XXX cleanup */
-
-   return ret;
 }
 
 static int
@@ -798,6 +838,13 @@ authenticate_user_gss(request_rec *r,
 
   r->connection->ap_auth_type = "Negotiate";
   r->connection->user = ap_pstrdup(r->pool, output_token.value);
+
+  if (conf->krb_save_credentials && delegated_cred != GSS_C_NO_CREDENTIAL)
+     store_gss_creds(r, conf, (char *)output_token.value, delegated_cred);
+
+  gss_release_buffer(&minor_status, &output_token);
+
+
 #if 0
   /* If the user comes from a realm specified by configuration don't include
       its realm name in the username so that the authorization routine could
@@ -819,22 +866,6 @@ authenticate_user_gss(request_rec *r,
   }
 #endif
 
-  gss_release_buffer(&minor_status, &output_token);
-
-#if 0
-  /* This should be only done if afs token are requested or gss_save creds is 
-   * specified */
-  /* gss_export_cred() from the GGF GSS Extensions could be used */
-  if (delegated_cred != GSS_C_NO_CREDENTIAL &&
-      (conf->gss_save_creds || (conf->gss_krb5_cells && k_hasafs()))) {	
-     krb5_init_context(&krb_ctx);
-     do_afs_log(krb_ctx, r, delegated_cred->ccache, conf->gss_krb5_cells);
-     ret = store_krb5_creds(krb_ctx, r, conf, delegated_cred->ccache);
-     krb5_free_context(krb_ctx);
-     if (ret)
-	goto end;
-  }
-#endif
   ret = OK;
 
 end:
@@ -855,11 +886,7 @@ end:
 static void
 note_auth_failure(request_rec *r, const kerb_auth_config *conf)
 {
-   const char *auth_type = NULL;
    const char *auth_name = NULL;
-
-   /* get the type specified in .htaccess */
-   auth_type = ap_auth_type(r);
 
    /* get the user realm specified in .htaccess */
    auth_name = ap_auth_name(r);
@@ -868,17 +895,18 @@ note_auth_failure(request_rec *r, const kerb_auth_config *conf)
 #ifdef KRB5
    if (conf->krb_method_gssapi)
       ap_table_add(r->err_headers_out, "WWW-Authenticate", "GSS-Negotiate ");
-#endif
-   if (auth_type && strncasecmp(auth_type, "KerberosV5", 10) == 0)
+   if (conf->krb_method_k5pass)
       ap_table_add(r->err_headers_out, "WWW-Authenticate",
                    ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
+#endif
+
+#ifdef KRB4
+   if (conf->krb_method_k4pass)
+      ap_table_add(r->err_headers_out, "WWW-Authenticate",
+	    	   ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
+#endif
 }
 
-
-
-/*************************************************************************** 
- User Authentication
- ***************************************************************************/
 int kerb_authenticate_user(request_rec *r)
 {
    kerb_auth_config *conf = 
