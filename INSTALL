@@ -81,6 +81,12 @@ used for. To create the account you can use standard AD tools.  Make sure that
 the user account has "Password never expires" set and write down the password
 you set for the account (you will need it later).
 
+When using ticket based authentication (KrbMethodNegotiate) and also wanting
+to save the ticket (KrbSaveCredentials), the user account for the Kerberos
+principal must have the option "Account is trusted for delegation" set. This
+enables to user account to delegate the tickets to the server for further
+authentication.
+
 If you want to kerberize additional hosts you need to create one user account
 per each kerberized host.
 
