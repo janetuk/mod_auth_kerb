@@ -438,6 +438,52 @@ static const command_rec kerb_auth_cmds[] = {
 #endif /* APXS1 */
 
 
+#ifndef HEIMDAL
+krb5_error_code
+krb5_verify_user(krb5_context context, krb5_principal principal,
+      		 krb5_ccache ccache, const char *password, krb5_boolean secure,
+		 const char *service)
+{
+   int problem;
+   krb5_creds my_creds;
+   krb5_data tgtname = {
+      0,
+      KRB5_TGS_NAME_SIZE,
+      KRB5_TGS_NAME
+   }
+
+   memset((char *)&my_creds, 0, sizeof(my_creds));
+   my_creds.client = principal;
+
+   if (krb5_build_principal_ext(kcontext, &server,
+	    			krb5_princ_realm(kcontext, me)->length,
+				krb5_princ_realm(kcontext, me)->data,
+				tgtname.length, tgtname.data,
+				krb5_princ_realm(kcontext, me)->length,
+				krb5_princ_realm(kcontext, me)->data,
+				0)) {
+	return ret;
+   }
+
+   my_creds.server = server;
+   if (krb5_timeofday(kcontext, &now))
+   	return -1;
+
+   my_creds.times.starttime = 0;
+   /* XXX
+   my_creds.times.endtime = now + lifetime;
+   my_creds.times.renew_till = now + renewal;
+   */
+
+   ret = krb5_get_in_tkt_with_password(kcontext, options, 0, NULL, 0,
+	 			       pass, ccache, &my_creds, 0);
+   if (ret) {
+   	return ret;
+   }
+
+   return 0;
+}
+#endif
 
 
 /*************************************************************************** 
@@ -470,24 +516,67 @@ int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
 	if (krb5_init_context(&kcontext))
 		return 0;
 
+	if (conf->krb_forwardable) {
+	   options |= KDC_OPT_FORWARDABLE;
+	}
+
+	if (conf->krb_renewable) {
+	   options |= KDC_OPT_RENEWABLE;
+	   renewal = 86400;        /* 24 hours */
+	}
+
+	if (conf->krb_lifetime) {
+	   lifetime = atoi(conf->krb_lifetime);
+	}
+
+	code = krb5_cc_gen_new(kcontext, &krb5_mcc_ops, &ccache);
+	if (code) {
+	   snprintf(errstr, sizeof(errstr), "krb5_cc_gen_new(): %.100s",
+		    krb5_get_err_text(kcontext, code));
+	   ap_log_reason (errstr, r->uri, r);
+	   ret = SERVER_ERROR;
+	   goto end;
+	}
+
+	realms = conf->krb5_auth_realm;
+	do {
+	   code = 0;
+	   if (realms) {
+	      code = krb5_set_default_realm(kcontext, 
+		    			    ap_getword_white(r->pool, &realms));
+	      if (code)
+		 continue;
+	   }
+
+	   code = krb5_parse_name(kcontext, r->connection->user, &princ);
+	   if (code)
+	      continue;
+
+	   code = krb5_verify_user(kcontext, princ, ccache, sent_pw,
+		 		   1, "khttp");
+	   if (code == 0)
+	      break;
+
+	   /* ap_getword_white() used above shifts the parameter, so it's not
+	      needed to touch the realms variable */
+	} while (realms && *realms);
+
+	memset((char *)pass, 0, strlen(pass));
+
+	if (code) {
+	   snprintf(errstr, sizeof(errstr), "Verifying krb5 password failed: %s",
+		    krb5_get_err_text(kcontext, code));
+	   ap_log_reason (errstr, r->uri, r);
+	   ret = HTTP_UNAUTHORIZED;
+	   return 0;
+	}
+
 	if (conf->krb_save_credentials) {
-		lifetime = 1800;	/* 30 minutes */
-
-		if (conf->krb_forwardable) {
-			options |= KDC_OPT_FORWARDABLE;
-		}
-
-		if (conf->krb_renewable) {
-			options |= KDC_OPT_RENEWABLE;
-			renewal = 86400;	/* 24 hours */
-		}
-
 		sprintf(ccname, "FILE:%s/k5cc_ap_%s",
-			conf->krb_tmp_dir ? conf->krb_tmp_dir : "/tmp",
+		        conf->krb_tmp_dir ? conf->krb_tmp_dir : "/tmp",
 			MK_USER);
 
-		for (c = ccname + strlen(conf->krb_tmp_dir ? conf->krb_tmp_dir :
-				"/tmp") + 1; *c; c++) {
+		for (c = ccname + strlen(conf->krb_tmp_dir ? conf->krb_tmp_dir :                                "/tmp") + 1; *c; c++) {
 			if (*c == '/')
 				*c = '.';
 		}
@@ -497,51 +586,22 @@ int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
 			return 0;
 		}
 		unlink(ccname+strlen("FILE:"));
-	}
 
-	if (conf->krb_lifetime) {
-		lifetime = atoi(conf->krb_lifetime);
-	}
-
-	memset((char *)&my_creds, 0, sizeof(my_creds));
-	if(krb5_parse_name(kcontext, user, &me))
-		return 0;
-	my_creds.client = me;
-
-#ifdef HEIMDAL
-#else
-	if (krb5_build_principal_ext(kcontext, &server,
-				krb5_princ_realm(kcontext, me)->length,
-				krb5_princ_realm(kcontext, me)->data,
-				tgtname.length, tgtname.data,
-				krb5_princ_realm(kcontext, me)->length,
-				krb5_princ_realm(kcontext, me)->data,
-				0)) {
-		return 0;
-	}
-#endif
-	my_creds.server = server;
-	if (krb5_timeofday(kcontext, &now))
-		return 0;
-	my_creds.times.starttime = 0;
-	my_creds.times.endtime = now + lifetime;
-	my_creds.times.renew_till = now + renewal;
-
-	if (conf->krb_save_credentials) {
 		if (krb5_cc_resolve(kcontext, ccname, &ccache))
 			return 0;
 
+		problem = krb5_cc_get_principal(krb_ctx, mem_ccache, &me);
+
 		if (krb5_cc_initialize(kcontext, ccache, me))
 			return 0;
-	}
 
-	ret = krb5_get_in_tkt_with_password(kcontext, options, 0, NULL, 0,
-				pass, ccache, &my_creds, 0);
-	if (ret) {
-		return 0;
-	}
+		problem = krb5_cc_copy_cache(krb_ctx, delegated_cred, ccache);
+		if (problem) {
+		   return 0;
+		}
 
-	krb5_free_cred_contents(kcontext, &my_creds);
+		krb5_cc_close(krb_ctx, ccache);
+	}
 
 	return 1;
 }
