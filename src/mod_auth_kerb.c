@@ -682,7 +682,7 @@ int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
 					&kerb_auth_module);
 	int ret;
 	krb5_context kcontext;
-	krb5_principal server, client;
+	krb5_principal client;
 	krb5_ccache ccache = NULL;
 	krb5_deltat lifetime = 300;	/* 5 minutes */
 	krb5_deltat renewal = 0;
@@ -712,16 +712,18 @@ int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
 	   lifetime = atoi(conf->krb_lifetime);
 	}
 
-/* ????
+#ifdef HEIMDAL
 	code = krb5_cc_gen_new(kcontext, &krb5_mcc_ops, &ccache);
+#else
+	code = krb5_mcc_generate_new(kcontext, &ccache);
+#endif
 	if (code) {
-	   snprintf(errstr, sizeof(errstr), "krb5_cc_gen_new(): %.100s",
+	   snprintf(errstr, sizeof(errstr), "Cannot generate new ccache: %.100s",
 		    krb5_get_err_text(kcontext, code));
 	   ap_log_reason (errstr, r->uri, r);
 	   ret = SERVER_ERROR;
 	   goto end;
 	}
-*/
 
 	realms = conf->krb_auth_realms;
 	do {
@@ -870,6 +872,34 @@ int kerb4_password_validate(request_rec *r, const char *user, const char *pass)
  GSSAPI Validation
  ***************************************************************************/
 #ifdef GSSAPI
+static const char *
+get_gss_error(pool *p, OM_uint32 error_status, char *prefix)
+{
+   OM_uint32 maj_stat, min_stat;
+   OM_uint32 msg_ctx = 0;
+   gss_buffer_desc status_string;
+   char buf[1024];
+   size_t len;
+
+   snprintf(buf, sizeof(buf), "%s: ", prefix);
+   len = strlen(buf);
+   do {
+      maj_stat = gss_display_status (&min_stat,
+	                             error_status,
+				     GSS_C_MECH_CODE,
+				     GSS_C_NO_OID,
+				     &msg_ctx,
+				     &status_string);
+      if (sizeof(buf) > len + status_string.length + 1) {
+         sprintf(buf+len, "%s:", (char*) status_string.value);
+         len += status_string.length;
+      }
+      gss_release_buffer(&min_stat, &status_string);
+   } while (!GSS_ERROR(maj_stat) && msg_ctx != 0);
+
+   return (ap_pstrdup(p, buf));
+}
+
 static int
 get_gss_creds(request_rec *r,
               kerb_auth_config *conf,
@@ -937,11 +967,9 @@ negotiate_authenticate_user(request_rec *r,
   gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;
   gss_buffer_desc output_token = GSS_C_EMPTY_BUFFER;
   const char *auth_param = NULL;
-  krb5_context krb_ctx = NULL;
   int ret;
   gss_name_t client_name = GSS_C_NO_NAME;
   gss_cred_id_t delegated_cred = GSS_C_NO_CREDENTIAL;
-  char *p;
 
   if (gss_connection == NULL) {
      gss_connection = ap_pcalloc(r->connection->pool, sizeof(*gss_connection));
@@ -1148,16 +1176,11 @@ int kerb_authenticate_user(request_rec *r)
 
 #ifdef GSSAPI
 	if (conf->krb_method_gssapi && retcode != OK) {
-/*
- Whatever you need to do here  =)
-		MK_AUTH_TYPE = "GSSAPI";
-		if (kerb5_password_validate(r, MK_USER, sent_pw)) {
+		MK_AUTH_TYPE = "Negotiate";
+		if (negotiate_authenticate_user(r, conf, auth_line))
 			retcode = OK;
-		}
-		else {
+		else
 			retcode = conf->krb_fail_status;
-		}
-*/
 	}
 #endif /* GSSAPI */
 
