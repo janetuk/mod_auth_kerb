@@ -1,7 +1,14 @@
 #include <stdlib.h>
 #include <errno.h>
 
-#include <gssapi.h>
+#include "config.h"
+
+#ifdef HEIMDAL
+#  include <gssapi.h>
+#else
+#  include <gssapi/gssapi.h>
+#  include <gssapi/gssapi_generic.h>
+#endif
 #include <spnego_asn1.h>
 #include <spnegokrb5.h>
 #include <der.h>

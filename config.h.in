@@ -1,6 +1,6 @@
 
 /* Define to the version of this package. */
-/* Conflicts with defintions from Apache
+/* Conflicts with defintions from Apache */
 /* #undef PACKAGE_VERSION */
 
 /* Define to `unsigned' if <sys/types.h> does not define. */

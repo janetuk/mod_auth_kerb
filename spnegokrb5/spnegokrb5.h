@@ -5,7 +5,12 @@
 extern "C" {
 #endif
 
-#include <gssapi.h>
+#include "config.h"
+#ifdef HEIMDAL
+#  include <gssapi.h>
+#else
+#  include <gssapi/gssapi.h>
+#endif
 
 OM_uint32 gss_init_sec_context_spnego(
             OM_uint32 *,
