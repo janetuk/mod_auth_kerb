@@ -271,15 +271,21 @@ verify_krb4_user(request_rec *r, char *name, char *instance, char *realm,
 
    ret = krb_get_pw_in_tkt(name, instance, realm, "krbtgt", realm, 
 	 		   DEFAULT_TKT_LIFE, password);
-   if (ret)
-      /* log(krb_err_txt[ret]) */
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "Cannot get krb4 ticket: krb_get_pw_in_tkt() failed: %s",
+		 krb_get_err_text(ret));
       return ret;
+   }
 
    hostname = ap_get_server_name(r);
 
    hp = gethostbyname(hostname);
    if (hp == NULL) {
       dest_tkt();
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "Cannot verify krb4 ticket: gethostbyname() failed: %s",
+		 hstrerror(h_errno));
       return h_errno;
    }
    memcpy(&addr, hp->h_addr, sizeof(addr));
@@ -290,13 +296,20 @@ verify_krb4_user(request_rec *r, char *name, char *instance, char *realm,
 
    ret = krb_mk_req(&ticket, linstance, phost, lrealm, 0);
    if (ret) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "Cannot verify krb4 ticket: krb_mk_req() failed: %s",
+		 krb_get_err_text(ret));
       dest_tkt();
       return ret;
    }
 
    ret = krb_rd_req(&ticket, linstance, phost, addr, &authdata, srvtab);
-   if (ret)
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "Cannot verify krb4 ticket: krb_rd_req() failed: %s",
+		 krb_get_err_text(ret));
       dest_tkt();
+   }
 
    return ret;
 }
@@ -380,8 +393,7 @@ authenticate_user_krb4pwd(request_rec *r,
    } while (realms && *realms);
 
    if (ret) {
-      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	         "Verifying krb4 password failed (%d)", ret);
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Verifying krb4 password failed");
       ret = HTTP_UNAUTHORIZED;
       goto end;
    }
