@@ -1,5 +1,8 @@
 #ident "$Id$"
 
+#ifndef APXS1
+#include "ap_compat.h"
+#endif
 #include "httpd.h"
 #include "http_config.h"
 #include "http_core.h"
@@ -34,6 +37,7 @@ module AP_MODULE_DECLARE_DATA kerb_auth_module;
 #define MK_USER r->connection->user
 #define MK_AUTH_TYPE r->connection->ap_auth_type
 #define MK_ARRAY_HEADER array_header
+#define apr_status_t int
 #else
 #define MK_POOL apr_pool_t
 #define MK_TABLE_GET apr_table_get
@@ -173,7 +177,6 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 #endif
 	return rec;
 }
-
 
 #if 0
 static const char *kerb_set_fail_slot(cmd_parms *cmd, void *struct_ptr,
@@ -341,7 +344,7 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
 #endif
 
 
-static void
+static apr_status_t
 krb5_cache_cleanup(void *data)
 {
    krb5_context context;
@@ -351,20 +354,21 @@ krb5_cache_cleanup(void *data)
 
    problem = krb5_init_context(&context);
    if (problem) {
-      ap_log_error(APLOG_MARK, APLOG_ERR, NULL, "krb5_init_context() failed");
-      return;
+      ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "krb5_init_context() failed");
+      return HTTP_INTERNAL_SERVER_ERROR;
    }
 
    problem = krb5_cc_resolve(context, cache_name, &cache);
    if (problem) {
-      ap_log_error(APLOG_MARK, APLOG_ERR, NULL, 
+      ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, 
                    "krb5_cc_resolve() failed (%s: %s)",
 	           cache_name, krb5_get_err_text(context, problem)); 
-      return;
+      return HTTP_INTERNAL_SERVER_ERROR;
    }
 
    krb5_cc_destroy(context, cache);
    krb5_free_context(context);
+   return OK;
 }
 
 static int
@@ -376,7 +380,6 @@ create_krb5_ccache(krb5_context kcontext,
 {
 	char *c, ccname[MAX_STRING_LEN];
 	krb5_error_code problem;
-	char errstr[1024];
 	int ret;
 	krb5_ccache tmp_ccache = NULL;
 
@@ -392,21 +395,19 @@ create_krb5_ccache(krb5_context kcontext,
 
 	problem = krb5_cc_resolve(kcontext, ccname, &tmp_ccache);
 	if (problem) {
-		snprintf(errstr, sizeof(errstr),
-			 "krb5_cc_resolve() failed: %s",
-			 krb5_get_err_text(kcontext, problem));
-		ap_log_reason (errstr, r->uri, r);
-		ret = SERVER_ERROR;
+		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+		              "Cannot create krb5 ccache: krb5_cc_resolve() failed: %s",
+			      krb5_get_err_text(kcontext, problem));
+		ret = HTTP_INTERNAL_SERVER_ERROR;
 		goto end;
 	}
 
 	problem = krb5_cc_initialize(kcontext, tmp_ccache, princ);
 	if (problem) {
-		snprintf(errstr, sizeof(errstr),
-		         "krb5_cc_initialize() failed: %s",
-			 krb5_get_err_text(kcontext, problem));
-		ap_log_reason (errstr, r->uri, r);
-		ret = SERVER_ERROR;
+		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+		      "Cannot create krb5 ccache: krb5_cc_initialize() failed: %s",
+		      krb5_get_err_text(kcontext, problem));
+		ret = HTTP_INTERNAL_SERVER_ERROR;
 		goto end;
 	}
 
@@ -442,7 +443,7 @@ store_krb5_creds(krb5_context kcontext,
    if (problem) {
       snprintf(errstr, sizeof(errstr), "krb5_cc_get_principal() failed: %s",
 	       krb5_get_err_text(kcontext, problem));
-      return SERVER_ERROR;
+      return HTTP_INTERNAL_SERVER_ERROR;
    }
 
    ret = create_krb5_ccache(kcontext, r, conf, princ, &ccache);
@@ -457,7 +458,7 @@ store_krb5_creds(krb5_context kcontext,
       snprintf(errstr, sizeof(errstr), "krb5_cc_copy_cache() failed: %s",
 	       krb5_get_err_text(kcontext, problem));
       krb5_cc_destroy(kcontext, ccache);
-      return SERVER_ERROR;
+      return HTTP_INTERNAL_SERVER_ERROR;
    }
 
    krb5_cc_close(kcontext, ccache);
@@ -479,18 +480,18 @@ int authenticate_user_krb5pwd(request_rec *r,
 
    code = krb5_init_context(&kcontext);
    if (code) {
-      ap_log_rerror(APLOG_MARK, APLOG_NOERRNO, r,
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	    	    "Cannot initialize Kerberos5 context (%d)", code);
-      return SERVER_ERROR;
+      return HTTP_INTERNAL_SERVER_ERROR;
    }
 
-   sent_pw = ap_uudecode(r->pool, auth_line);
-   r->connection->user = ap_getword (r->pool, &sent_pw, ':');
-   r->connection->ap_auth_type = "Basic";
+   sent_pw = ap_pbase64decode(r->pool, auth_line);
+   MK_USER = ap_getword (r->pool, &sent_pw, ':');
+   MK_AUTH_TYPE = "Basic";
 
    /* do not allow user to override realm setting of server */
-   if (strchr(r->connection->user,'@')) {
-      ap_log_rerror(APLOG_MARK, APLOG_NOERRNO, r,
+   if (strchr(MK_USER, '@')) {
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	    	   "specifying realm in user name is prohibited");
       ret = HTTP_UNAUTHORIZED;
       goto end;
@@ -502,10 +503,10 @@ int authenticate_user_krb5pwd(request_rec *r,
    code = krb5_mcc_generate_new(kcontext, &ccache);
 #endif
    if (code) {
-      ap_log_rerror(APLOG_MARK, APLOG_NOERRNO, r, 
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, 
 	            "Cannot generate new ccache: %s",
 		    krb5_get_err_text(kcontext, code));
-      ret = SERVER_ERROR;
+      ret = HTTP_INTERNAL_SERVER_ERROR;
       goto end;
    }
 
@@ -519,7 +520,7 @@ int authenticate_user_krb5pwd(request_rec *r,
 	          		           ap_getword_white(r->pool, &realms))))
 	 continue;
 
-      code = krb5_parse_name(kcontext, r->connection->user, &client);
+      code = krb5_parse_name(kcontext, MK_USER, &client);
       if (code)
 	 continue;
 
@@ -536,7 +537,7 @@ int authenticate_user_krb5pwd(request_rec *r,
    memset((char *)sent_pw, 0, strlen(sent_pw));
 
    if (code) {
-      ap_log_rerror(APLOG_MARK, APLOG_NOERRNO, r,
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	            "Verifying krb5 password failed: %s",
 		    krb5_get_err_text(kcontext, code));
       ret = HTTP_UNAUTHORIZED;
@@ -566,7 +567,7 @@ end:
  ********************************************************************/
 
 static const char *
-get_gss_error(pool *p, OM_uint32 error_status, char *prefix)
+get_gss_error(MK_POOL *p, OM_uint32 error_status, char *prefix)
 {
    OM_uint32 maj_stat, min_stat;
    OM_uint32 msg_ctx = 0;
@@ -593,19 +594,21 @@ get_gss_error(pool *p, OM_uint32 error_status, char *prefix)
    return (ap_pstrdup(p, buf));
 }
 
-static void
+static apr_status_t
 cleanup_gss_connection(void *data)
 {
    OM_uint32 minor_status;
    gss_connection_t *gss_conn = (gss_connection_t *)data;
 
    if (data == NULL)
-      return;
+      return OK;
    if (gss_conn->context != GSS_C_NO_CONTEXT)
       gss_delete_sec_context(&minor_status, &gss_conn->context,
 	                     GSS_C_NO_BUFFER);
    if (gss_conn->server_creds != GSS_C_NO_CREDENTIAL)
       gss_release_cred(&minor_status, &gss_conn->server_creds);
+
+   return OK;
 }
 
 static int
@@ -617,32 +620,32 @@ store_gss_creds(request_rec *r, kerb_auth_config *conf, char *princ_name,
    krb5_ccache ccache = NULL;
    krb5_error_code problem;
    krb5_context context;
-   int ret = SERVER_ERROR;
+   int ret = HTTP_INTERNAL_SERVER_ERROR;
 
    problem = krb5_init_context(&context);
    if (problem) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	    "Cannot initialize krb5 context");
-      return SERVER_ERROR;
+      return HTTP_INTERNAL_SERVER_ERROR;
    }
 
    problem = krb5_parse_name(context, princ_name, &princ);
    if (problem) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, r, 
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, 
 	 "Cannot parse delegated username (%s)", krb5_get_err_text(context, problem));
       goto end;
    }
 
    problem = create_krb5_ccache(context, r, conf, princ, &ccache);
    if (problem) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	 "Cannot create krb5 ccache (%s)", krb5_get_err_text(context, problem));
       goto end;
    }
 
    maj_stat = gss_krb5_copy_ccache(&min_stat, delegated_cred, ccache);
    if (GSS_ERROR(maj_stat)) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	 "Cannot store delegated credential (%s)", 
 	 get_gss_error(r->pool, min_stat, "gss_krb5_copy_ccache"));
       goto end;
@@ -683,10 +686,10 @@ get_gss_creds(request_rec *r,
 			  	       GSS_C_NT_USER_NAME : GSS_C_NT_HOSTBASED_SERVICE,
 				  &server_name);
    if (GSS_ERROR(major_status)) {
-      ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	            "%s", get_gss_error(r->pool, minor_status,
 		    "gss_import_name() failed"));
-      return SERVER_ERROR;
+      return HTTP_INTERNAL_SERVER_ERROR;
    }
    
    major_status = gss_acquire_cred(&minor_status, server_name, GSS_C_INDEFINITE,
@@ -694,10 +697,10 @@ get_gss_creds(request_rec *r,
 				   server_creds, NULL, NULL);
    gss_release_name(&minor_status2, &server_name);
    if (GSS_ERROR(major_status)) {
-      ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	           "%s", get_gss_error(r->pool, minor_status,
 		 		       "gss_acquire_cred() failed"));
-      return SERVER_ERROR;
+      return HTTP_INTERNAL_SERVER_ERROR;
    }
    
    return 0;
@@ -719,9 +722,9 @@ authenticate_user_gss(request_rec *r,
   if (gss_connection == NULL) {
      gss_connection = ap_pcalloc(r->connection->pool, sizeof(*gss_connection));
      if (gss_connection == NULL) {
-	ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+	ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	              "ap_pcalloc() failed (not enough memory)");
-	ret = SERVER_ERROR;
+	ret = HTTP_INTERNAL_SERVER_ERROR;
 	goto end;
      }
      memset(gss_connection, 0, sizeof(*gss_connection));
@@ -740,18 +743,18 @@ authenticate_user_gss(request_rec *r,
   /* ap_getword() shifts parameter */
   auth_param = ap_getword_white(r->pool, &auth_line);
   if (auth_param == NULL) {
-     ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	           "No Authorization parameter in request from client");
      ret = HTTP_UNAUTHORIZED;
      goto end;
   }
 
-  input_token.length = ap_base64decode_len(auth_param);
+  input_token.length = ap_base64decode_len(auth_param) + 1;
   input_token.value = ap_pcalloc(r->connection->pool, input_token.length);
   if (input_token.value == NULL) {
-     ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	   	   "ap_pcalloc() failed (not enough memory)");
-     ret = SERVER_ERROR;
+     ret = HTTP_INTERNAL_SERVER_ERROR;
      goto end;
   }
   input_token.length = ap_base64decode(input_token.value, auth_param);
@@ -771,12 +774,12 @@ authenticate_user_gss(request_rec *r,
      char *token = NULL;
      size_t len;
      
-     len = ap_base64encode_len(output_token.length);
+     len = ap_base64encode_len(output_token.length) + 1;
      token = ap_pcalloc(r->connection->pool, len + 1);
      if (token == NULL) {
-	ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+	ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	             "ap_pcalloc() failed (not enough memory)");
-        ret = SERVER_ERROR;
+        ret = HTTP_INTERNAL_SERVER_ERROR;
 	gss_release_buffer(&minor_status2, &output_token);
 	goto end;
      }
@@ -788,7 +791,7 @@ authenticate_user_gss(request_rec *r,
   }
 
   if (GSS_ERROR(major_status)) {
-     ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	           "%s", get_gss_error(r->pool, minor_status,
 		                       "gss_accept_sec_context() failed"));
      ret = HTTP_UNAUTHORIZED;
@@ -805,15 +808,15 @@ authenticate_user_gss(request_rec *r,
   major_status = gss_export_name(&minor_status, client_name, &output_token);
   gss_release_name(&minor_status, &client_name); 
   if (GSS_ERROR(major_status)) {
-    ap_log_rerror(APLOG_MARK, APLOG_ERR, r,
+    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	          "%s", get_gss_error(r->pool, minor_status, 
 		                      "gss_export_name() failed"));
-    ret = SERVER_ERROR;
+    ret = HTTP_INTERNAL_SERVER_ERROR;
     goto end;
   }
 
-  r->connection->ap_auth_type = "Negotiate";
-  r->connection->user = ap_pstrdup(r->pool, output_token.value);
+  MK_AUTH_TYPE = "Negotiate";
+  MK_USER = ap_pstrdup(r->pool, output_token.value);
 
   if (conf->krb_save_credentials && delegated_cred != GSS_C_NO_CREDENTIAL)
      store_gss_creds(r, conf, (char *)output_token.value, delegated_cred);
@@ -860,7 +863,7 @@ end:
 
 
 static void
-note_auth_failure(request_rec *r, const kerb_auth_config *conf)
+note_kerb_auth_failure(request_rec *r, const kerb_auth_config *conf)
 {
    const char *auth_name = NULL;
 
@@ -898,7 +901,7 @@ int kerb_authenticate_user(request_rec *r)
 
 #ifdef KRB5
    if (type != NULL && strcasecmp(type, "KerberosV5") == 0) {
-      ap_log_rerror(APLOG_MARK, APLOG_WARNING, r,
+      ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
 	    "The use of KerberosV5 in AuthType is obsolete, please consider using the AuthKerberos option");
       conf->krb_auth_enable = 1;
    }
@@ -906,7 +909,7 @@ int kerb_authenticate_user(request_rec *r)
 
 #ifdef KRB4
    if (type != NULL && strcasecmp(type, "KerberosV4") == 0) {
-      ap_log_rerror(APLOG_MARK, APLOG_WARNING, r,
+      ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
 	    "The use of KerberosV4 in AuthType is obsolete, please consider using the AuthKerberos option");
       conf->krb_auth_enable = 1;
    }
@@ -918,7 +921,7 @@ int kerb_authenticate_user(request_rec *r)
    /* get what the user sent us in the HTTP header */
    auth_line = MK_TABLE_GET(r->headers_in, "Authorization");
    if (!auth_line) {
-      note_auth_failure(r, conf);
+      note_kerb_auth_failure(r, conf);
       return HTTP_UNAUTHORIZED;
    }
    auth_type = ap_getword_white(r->pool, &auth_line);
@@ -942,7 +945,7 @@ int kerb_authenticate_user(request_rec *r)
 #endif
 
    if (ret == HTTP_UNAUTHORIZED)
-      note_auth_failure(r, conf);
+      note_kerb_auth_failure(r, conf);
 
    return ret;
 }
