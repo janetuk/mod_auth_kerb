@@ -466,6 +466,17 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
       goto end;
    }
 
+   /* XXX
+   {
+      char *realm;
+
+      krb5_get_default_realm(context, &realm);
+      log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+                 "trying to verify password using key for %s/%s@%s",
+		 service, ap_get_server_name(r), realm);
+   }
+   */
+
    krb5_verify_init_creds_opt_init(&opt);
    krb5_verify_init_creds_opt_set_ap_req_nofail(&opt, krb_verify_kdc);
 
@@ -933,6 +944,8 @@ cmp_gss_type(gss_buffer_t token, gss_OID oid)
 
    if (token->length == 0)
       return GSS_S_DEFECTIVE_TOKEN;
+
+   /* XXX if (token->value == NTLMSSP) log_debug("NTLM mechanism used"); */
 
    p = token->value;
    if (*p++ != 0x60)
