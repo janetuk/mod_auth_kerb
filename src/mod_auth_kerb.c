@@ -30,6 +30,7 @@ module AP_MODULE_DECLARE_DATA kerb_auth_module;
 
 #ifdef KRB5
 #include <krb5.h>
+#include <gssapi.h>
 #endif /* KRB5 */
 
 #ifdef KRB4
@@ -93,8 +94,30 @@ typedef struct {
 #endif /* KRB5 */
 	int krb_save_credentials;
 	char *krb_tmp_dir;
+	char *service_name;
 } kerb_auth_config;
 
+typedef struct {
+   gss_ctx_id_t context;
+   gss_cred_id_t server_creds;
+} gss_connection_t;
+
+static gss_connection_t *gss_connection = NULL;
+
+static void
+cleanup_gss_connection(void *data)
+{
+   OM_uint32 minor_status;
+   gss_connection_t *gss_conn = (gss_connection_t *)data;
+
+   if (data == NULL)
+      return;
+   if (gss_conn->context != GSS_C_NO_CONTEXT)
+      gss_delete_sec_context(&minor_status, &gss_conn->context,
+	                     GSS_C_NO_BUFFER);
+   if (gss_conn->server_creds != GSS_C_NO_CREDENTIAL)
+      gss_release_cred(&minor_status, &gss_conn->server_creds);
+}
 
 
 
@@ -137,18 +160,17 @@ static const char *kerb_set_type_slot(cmd_parms *cmd, void *struct_ptr,
 					const char *arg)
 {
 	int offset = (int) (long) cmd->info;
-	if
 #ifdef KRB5
-	   (!strncasecmp(arg, "v5", 2))
+	if (!strncasecmp(arg, "v5", 2))
 		*(char **) ((char *)struct_ptr + offset) = MK_PSTRDUP(cmd->pool, "KerberosV5");
-	else if
+	else
 #endif /* KRB5 */
 #ifdef KRB4
-	   (!strncasecmp(arg, "v4", 2))
+	if (!strncasecmp(arg, "v4", 2))
 		*(char **) ((char *)struct_ptr + offset) = MK_PSTRDUP(cmd->pool, "KerberosV4");
+	else
 #endif /* KRB4 */
-	else if
-	   (!strncasecmp(arg, "dualv5v4", 8))
+	if (!strncasecmp(arg, "dualv5v4", 8))
 		*(char **) ((char *)struct_ptr + offset) = MK_PSTRDUP(cmd->pool, "KerberosDualV5V4");
 	else if
 	   (!strncasecmp(arg, "dualv4v5", 8))
@@ -437,7 +459,9 @@ int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
 	krb5_deltat renewal = 0;
 	krb5_flags options = 0;
 	krb5_data tgtname = {
+#ifndef HEIMDAL
 		0,
+#endif
 		KRB5_TGS_NAME_SIZE,
 		KRB5_TGS_NAME
 	};
@@ -484,6 +508,8 @@ int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
 		return 0;
 	my_creds.client = me;
 
+#ifdef HEIMDAL
+#else
 	if (krb5_build_principal_ext(kcontext, &server,
 				krb5_princ_realm(kcontext, me)->length,
 				krb5_princ_realm(kcontext, me)->data,
@@ -493,6 +519,7 @@ int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
 				0)) {
 		return 0;
 	}
+#endif
 	my_creds.server = server;
 	if (krb5_timeofday(kcontext, &now))
 		return 0;
@@ -609,7 +636,228 @@ int kerb4_password_validate(request_rec *r, const char *user, const char *pass)
 }
 #endif /* KRB4 */
 
+static int
+get_gss_creds(request_rec *r,
+              kerb_auth_config *conf,
+	      gss_cred_id_t *server_creds)
+{
+   int ret = 0;
+   gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;
+   OM_uint32 major_status, minor_status;
+   gss_name_t server_name = GSS_C_NO_NAME;
 
+   if (conf->service_name) {
+      input_token.value = conf->service_name;
+      input_token.length = strlen(conf->service_name) + 1;
+   }
+   else {
+      input_token.value = "khttp";
+      input_token.length = 6;
+   }
+   major_status = gss_import_name(&minor_status, &input_token,
+			          (conf->service_name) ? 
+			  	       GSS_C_NT_USER_NAME : GSS_C_NT_HOSTBASED_SERVICE,
+				  &server_name);
+   if (GSS_ERROR(major_status)) {
+      ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
+	            "%s", get_gss_error(r->pool, minor_status,
+		    "gss_import_name() failed"));
+      ret = SERVER_ERROR;
+      goto fail;
+   }
+   
+#ifdef KRB5
+   if (conf->krb_5_keytab)
+      setenv("KRB5_KTNAME", conf->krb_5_keytab, 1);
+#endif
+
+   major_status = gss_acquire_cred(&minor_status, server_name, GSS_C_INDEFINITE,
+			           GSS_C_NO_OID_SET, GSS_C_ACCEPT,
+				   server_creds, NULL, NULL);
+#ifdef KRB5
+   if (conf->krb_5_keytab)
+      unsetenv("KRB5_KTNAME");
+#endif
+   if (GSS_ERROR(major_status)) {
+      ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
+	           "%s", get_gss_error(r->pool, minor_status,
+		 		       "gss_acquire_cred() failed"));
+      ret = SERVER_ERROR;
+      goto fail;
+   }
+   
+   return 0;
+
+fail:
+   /* XXX cleanup */
+
+   return ret;
+}
+
+static int
+negotiate_authenticate_user(request_rec *r,
+      	 	            kerb_auth_config *conf,
+		            const char *auth_line)
+{
+  OM_uint32 major_status, minor_status, minor_status2;
+  gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;
+  gss_buffer_desc output_token = GSS_C_EMPTY_BUFFER;
+  const char *auth_param = NULL;
+  krb5_context krb_ctx = NULL;
+  int ret;
+  gss_name_t client_name = GSS_C_NO_NAME;
+  gss_cred_id_t delegated_cred = GSS_C_NO_CREDENTIAL;
+  char *p;
+
+  if (gss_connection == NULL) {
+     gss_connection = ap_pcalloc(r->connection->pool, sizeof(*gss_connection));
+     if (gss_connection == NULL) {
+	ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
+	              "ap_pcalloc() failed");
+	ret = SERVER_ERROR;
+	goto end;
+     }
+     memset(gss_connection, 0, sizeof(*gss_connection));
+     ap_register_cleanup(r->connection->pool, gss_connection, cleanup_gss_connection, ap_null_cleanup);
+  }
+
+  if (gss_connection->server_creds == GSS_C_NO_CREDENTIAL) {
+     ret = get_gss_creds(r, conf, &gss_connection->server_creds);
+     if (ret)
+	goto end;
+  }
+
+  /* ap_getword() shifts parameter */
+  auth_param = ap_getword_white(r->pool, &auth_line);
+  if (auth_param == NULL) {
+     ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
+	           "No Authorization parameter from client");
+     ret = HTTP_UNAUTHORIZED;
+     goto end;
+  }
+
+  input_token.length = ap_base64decode_len(auth_param);
+  input_token.value = ap_pcalloc(r->connection->pool, input_token.length);
+  if (input_token.value == NULL) {
+     ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
+	   	   "Not enough memory");
+     ret = SERVER_ERROR;
+     goto end;
+  }
+  input_token.length = ap_base64decode(input_token.value, auth_param);
+
+  major_status = gss_accept_sec_context(&minor_status,
+	                                &gss_connection->context,
+					gss_connection->server_creds,
+					&input_token,
+					GSS_C_NO_CHANNEL_BINDINGS,
+					&client_name,
+					NULL,
+					&output_token,
+					NULL,
+					NULL,
+					&delegated_cred);
+  if (output_token.length) {
+     char *token = NULL;
+     size_t len;
+     
+     len = ap_base64encode_len(output_token.length);
+     token = ap_pcalloc(r->connection->pool, len + 1);
+     if (token == NULL) {
+	ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
+	             "Not enough memory");
+        ret = SERVER_ERROR;
+	gss_release_buffer(&minor_status2, &output_token);
+	goto end;
+     }
+     ap_base64encode(token, output_token.value, output_token.length);
+     token[len] = '\0';
+     ap_table_set(r->err_headers_out, "WWW-Authenticate",
+	          ap_pstrcat(r->pool, "GSS-Negotiate ", token, NULL));
+     free(token);
+     gss_release_buffer(&minor_status2, &output_token);
+  }
+
+  if (GSS_ERROR(major_status)) {
+     ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
+	           "%s", get_gss_error(r->pool, minor_status,
+		                       "gss_accept_sec_context() failed"));
+     ret = HTTP_UNAUTHORIZED;
+     goto end;
+  }
+
+  if (major_status & GSS_S_CONTINUE_NEEDED) {
+#if 0
+     ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
+	           "only one authentication iteration allowed"); 
+#endif
+     ret = HTTP_UNAUTHORIZED;
+     goto end;
+  }
+
+  major_status = gss_export_name(&minor_status, client_name, &output_token);
+  gss_release_name(&minor_status, &client_name); 
+  if (GSS_ERROR(major_status)) {
+    ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
+	          "%s", get_gss_error(r->pool, minor_status, 
+		                      "gss_export_name() failed"));
+    ret = SERVER_ERROR;
+    goto end;
+  }
+
+  r->connection->ap_auth_type = "Negotiate";
+  r->connection->user = ap_pstrdup(r->pool, output_token.value);
+#if 0
+  /* If the user comes from a realm specified by configuration don't include
+      its realm name in the username so that the authorization routine could
+      work for both Password-based and Ticket-based authentication. It's
+      administrators responsibility to include only such realm that have
+      unified principal instances, i.e. if the same principal name occures in
+      multiple realms, it must be always assigned to a single user.
+  */    
+  p = strchr(r->connection->user, '@');
+  if (p != NULL) {
+     const char *realms = conf->gss_krb5_realms;
+
+     while (realms && *realms) {
+	if (strcmp(p+1, ap_getword_white(r->pool, &realms)) == 0) {
+	   *p = '\0';
+	   break;
+	}
+     }
+  }
+#endif
+
+  gss_release_buffer(&minor_status, &output_token);
+
+#if 0
+  /* This should be only done if afs token are requested or gss_save creds is 
+   * specified */
+  /* gss_export_cred() from the GGF GSS Extensions could be used */
+  if (delegated_cred != GSS_C_NO_CREDENTIAL &&
+      (conf->gss_save_creds || (conf->gss_krb5_cells && k_hasafs()))) {	
+     krb5_init_context(&krb_ctx);
+     do_afs_log(krb_ctx, r, delegated_cred->ccache, conf->gss_krb5_cells);
+     ret = store_krb5_creds(krb_ctx, r, conf, delegated_cred->ccache);
+     krb5_free_context(krb_ctx);
+     if (ret)
+	goto end;
+  }
+#endif
+  ret = OK;
+
+end:
+  if (delegated_cred)
+     gss_release_cred(&minor_status, &delegated_cred);
+
+  if (output_token.length) 
+     gss_release_buffer(&minor_status, &output_token);
+
+  if (client_name != GSS_C_NO_NAME)
+     gss_release_name(&minor_status, &client_name);
+
+  return ret;
+}
 
 
 /*************************************************************************** 
