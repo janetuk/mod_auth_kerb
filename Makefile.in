@@ -19,8 +19,8 @@ install:
 	$(APXS) -c -i $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) src/mod_auth_kerb.c $(SPNEGO_SRCS)
 
 clean:
-	for i in . src spnegokrb5; do
-		$(RM) *.{o,so,a,la,lo,slo} core
+	for i in . src spnegokrb5; do \
+		$(RM) $$i/*.{o,so,a,la,lo,slo} core; \
 	done
 
 distclean: clean
