@@ -35,7 +35,7 @@ AC_STRUCT_TM
 KRB5_CPPFLAGS=""
 KRB5_LDFLAGS=""
 krb5_config_command=krb5-config
-DO_KRB5=
+SPNEGO_SRCS=""
 
 AC_ARG_WITH(krb5,
   AC_HELP_STRING([--with-krb5=dir],[use krb5 in dir]),
@@ -92,12 +92,28 @@ if test "x$with_krb5" != "xno" ; then
      LDFLAGS=$ac_save_LDFLAGS
      LIBS=$ac_save_LIBS
      AC_DEFINE(KRB5)
-     DO_KRB5=yes
+     SPNEGO_SRCS="\
+	spnegokrb5/asn1_MechType.c         \
+        spnegokrb5/asn1_MechTypeList.c     \
+        spnegokrb5/asn1_ContextFlags.c     \
+        spnegokrb5/asn1_NegTokenInit.c     \
+        spnegokrb5/asn1_NegTokenTarg.c     \
+        spnegokrb5/der_get.c               \
+        spnegokrb5/der_put.c               \
+        spnegokrb5/der_free.c              \
+        spnegokrb5/der_length.c            \
+        spnegokrb5/der_copy.c              \
+        spnegokrb5/timegm.c                \
+        spnegokrb5/init_sec_context.c      \
+        spnegokrb5/accept_sec_context.c    \
+        spnegokrb5/encapsulate.c           \
+        spnegokrb5/decapsulate.c           \
+        spnegokrb5/external.c"
   fi
 fi
 AC_SUBST(KRB5_CPPFLAGS)
 AC_SUBST(KRB5_LDFLAGS)
-AC_SUBST(DO_KRB5)
+AC_SUBST(SPNEGO_SRCS)
 
 #
 # Kerberos4 enviroment
@@ -223,7 +239,6 @@ AC_MSG_RESULT(yes)
 
 AC_SUBST(APXS)
 
-AC_CONFIG_FILES([Makefile
-                 spnegokrb5/Makefile])
+AC_CONFIG_FILES([Makefile])
 
 AC_OUTPUT
