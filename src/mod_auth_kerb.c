@@ -192,7 +192,7 @@ static const command_rec kerb_auth_cmds[] = {
    command("KrbMethodNegotiate", ap_set_flag_slot, krb_method_gssapi,
      FLAG, "Enable Negotiate authentication method."),
 
-   command("KrbMethodK5Pass", ap_set_flag_slot, krb_method_k5pass,
+   command("KrbMethodK5Passwd", ap_set_flag_slot, krb_method_k5pass,
      FLAG, "Enable Kerberos V5 password authentication."),
 #endif 
 
@@ -200,7 +200,7 @@ static const command_rec kerb_auth_cmds[] = {
    command("Krb4Srvtab", ap_set_file_slot, krb_4_srvtab,
      TAKE1, "Location of Kerberos V4 srvtab file."),
 
-   command("KrbMethodK4Pass", ap_set_flag_slot, krb_method_k4pass,
+   command("KrbMethodK4Passwd", ap_set_flag_slot, krb_method_k4pass,
      FLAG, "Enable Kerberos V4 password authentication."),
 #endif
 
@@ -1050,7 +1050,7 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
 	        "%s", get_gss_error(r->pool, major_status, minor_status,
 		                    "gss_accept_sec_context() failed"));
      /* Don't offer the Negotiate method again if call to GSS layer failed */
-     *negotiate_ret_value = (char *) EMPTY_STRING;
+     *negotiate_ret_value = NULL;
      ret = HTTP_UNAUTHORIZED;
      goto end;
   }
@@ -1122,10 +1122,11 @@ note_kerb_auth_failure(request_rec *r, const kerb_auth_config *conf,
 
    /* XXX should the WWW-Authenticate header be cleared first? */
 #ifdef KRB5
-   if (use_krb5 && conf->krb_method_gssapi && negotiate_ret_value != NULL)
+   if (use_krb5 && conf->krb_method_gssapi && negotiate_ret_value != NULL) {
       negoauth_param = (*negotiate_ret_value == '\0') ? "Negotiate" :
 	          ap_pstrcat(r->pool, "Negotiate ", negotiate_ret_value, NULL);
       ap_table_add(r->err_headers_out, "WWW-Authenticate", negoauth_param);
+   }
    if (use_krb5 && conf->krb_method_k5pass) {
       ap_table_add(r->err_headers_out, "WWW-Authenticate",
                    ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
