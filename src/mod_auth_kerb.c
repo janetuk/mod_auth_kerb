@@ -866,6 +866,7 @@ authenticate_user_gss(request_rec *r,
   if (conf->krb_5_keytab)
      /* use really strcat(), since the string passed to putenv() will become
       * part of the enviroment and shouldn't be free()ed by apache */
+     /* XXX space isn't allocated !!! */
      putenv(strcat("KRB5_KTNAME=", conf->krb_5_keytab));
 
   if (gss_connection->server_creds == GSS_C_NO_CREDENTIAL) {
