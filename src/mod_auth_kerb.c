@@ -2,6 +2,7 @@
 
 #ifndef APXS1
 #include "ap_compat.h"
+#include "apr_strings.h"
 #endif
 #include "httpd.h"
 #include "http_config.h"
@@ -20,9 +21,9 @@
 #endif /* KRB4 */
 
 #ifdef APXS1
-module kerb_auth_module;
+module auth_kerb_module;
 #else
-module AP_MODULE_DECLARE_DATA kerb_auth_module;
+module AP_MODULE_DECLARE_DATA auth_kerb_module;
 #endif
 
 /*************************************************************************** 
@@ -37,7 +38,6 @@ module AP_MODULE_DECLARE_DATA kerb_auth_module;
 #define MK_USER r->connection->user
 #define MK_AUTH_TYPE r->connection->ap_auth_type
 #define MK_ARRAY_HEADER array_header
-#define apr_status_t int
 #else
 #define MK_POOL apr_pool_t
 #define MK_TABLE_GET apr_table_get
@@ -178,6 +178,23 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 	return rec;
 }
 
+void log_rerror(const char *file, int line, int level, int status,
+                const request_rec *r, const char *fmt, ...)
+{
+   char errstr[1024];
+   va_list ap;
+
+   va_start(ap, fmt);
+   vsnprintf(errstr, sizeof(errstr), fmt, ap);
+   va_end(ap);
+
+#ifdef APXS1
+   ap_log_rerror(file, line, level, r, "%s", errstr);
+#else
+   ap_log_rerror(file, line, level, status, r, "%s", errstr);
+#endif
+}
+
 #if 0
 static const char *kerb_set_fail_slot(cmd_parms *cmd, void *struct_ptr,
 					const char *arg)
@@ -203,7 +220,7 @@ int kerb4_password_validate(request_rec *r, const char *user, const char *pass)
 {
 	kerb_auth_config *conf =
 		(kerb_auth_config *)ap_get_module_config(r->per_dir_config,
-					&kerb_auth_module);
+					&auth_kerb_module);
 	int ret;
 	int lifetime = DEFAULT_TKT_LIFE;
 	char *c, *tfname;
@@ -344,7 +361,7 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
 #endif
 
 
-static apr_status_t
+static int
 krb5_cache_cleanup(void *data)
 {
    krb5_context context;
@@ -354,15 +371,15 @@ krb5_cache_cleanup(void *data)
 
    problem = krb5_init_context(&context);
    if (problem) {
-      ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "krb5_init_context() failed");
+      /* ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, "krb5_init_context() failed"); */
       return HTTP_INTERNAL_SERVER_ERROR;
    }
 
    problem = krb5_cc_resolve(context, cache_name, &cache);
    if (problem) {
-      ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL, 
-                   "krb5_cc_resolve() failed (%s: %s)",
-	           cache_name, krb5_get_err_text(context, problem)); 
+      /* log_error(APLOG_MARK, APLOG_ERR, 0, NULL, 
+                "krb5_cc_resolve() failed (%s: %s)",
+	        cache_name, krb5_get_err_text(context, problem)); */
       return HTTP_INTERNAL_SERVER_ERROR;
    }
 
@@ -395,16 +412,16 @@ create_krb5_ccache(krb5_context kcontext,
 
 	problem = krb5_cc_resolve(kcontext, ccname, &tmp_ccache);
 	if (problem) {
-		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-		              "Cannot create krb5 ccache: krb5_cc_resolve() failed: %s",
-			      krb5_get_err_text(kcontext, problem));
+		log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+		           "Cannot create krb5 ccache: krb5_cc_resolve() failed: %s",
+		  	   krb5_get_err_text(kcontext, problem));
 		ret = HTTP_INTERNAL_SERVER_ERROR;
 		goto end;
 	}
 
 	problem = krb5_cc_initialize(kcontext, tmp_ccache, princ);
 	if (problem) {
-		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+		log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 		      "Cannot create krb5 ccache: krb5_cc_initialize() failed: %s",
 		      krb5_get_err_text(kcontext, problem));
 		ret = HTTP_INTERNAL_SERVER_ERROR;
@@ -480,8 +497,8 @@ int authenticate_user_krb5pwd(request_rec *r,
 
    code = krb5_init_context(&kcontext);
    if (code) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	    	    "Cannot initialize Kerberos5 context (%d)", code);
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+    		 "Cannot initialize Kerberos5 context (%d)", code);
       return HTTP_INTERNAL_SERVER_ERROR;
    }
 
@@ -491,8 +508,8 @@ int authenticate_user_krb5pwd(request_rec *r,
 
    /* do not allow user to override realm setting of server */
    if (strchr(MK_USER, '@')) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	    	   "specifying realm in user name is prohibited");
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+  		 "specifying realm in user name is prohibited");
       ret = HTTP_UNAUTHORIZED;
       goto end;
    } 
@@ -503,9 +520,9 @@ int authenticate_user_krb5pwd(request_rec *r,
    code = krb5_mcc_generate_new(kcontext, &ccache);
 #endif
    if (code) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, 
-	            "Cannot generate new ccache: %s",
-		    krb5_get_err_text(kcontext, code));
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r, 
+	         "Cannot generate new ccache: %s",
+		 krb5_get_err_text(kcontext, code));
       ret = HTTP_INTERNAL_SERVER_ERROR;
       goto end;
    }
@@ -537,9 +554,9 @@ int authenticate_user_krb5pwd(request_rec *r,
    memset((char *)sent_pw, 0, strlen(sent_pw));
 
    if (code) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	            "Verifying krb5 password failed: %s",
-		    krb5_get_err_text(kcontext, code));
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "Verifying krb5 password failed: %s",
+		 krb5_get_err_text(kcontext, code));
       ret = HTTP_UNAUTHORIZED;
       goto end;
    }
@@ -594,7 +611,7 @@ get_gss_error(MK_POOL *p, OM_uint32 error_status, char *prefix)
    return (ap_pstrdup(p, buf));
 }
 
-static apr_status_t
+static int
 cleanup_gss_connection(void *data)
 {
    OM_uint32 minor_status;
@@ -624,28 +641,27 @@ store_gss_creds(request_rec *r, kerb_auth_config *conf, char *princ_name,
 
    problem = krb5_init_context(&context);
    if (problem) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	    "Cannot initialize krb5 context");
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Cannot initialize krb5 context");
       return HTTP_INTERNAL_SERVER_ERROR;
    }
 
    problem = krb5_parse_name(context, princ_name, &princ);
    if (problem) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, 
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r, 
 	 "Cannot parse delegated username (%s)", krb5_get_err_text(context, problem));
       goto end;
    }
 
    problem = create_krb5_ccache(context, r, conf, princ, &ccache);
    if (problem) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	 "Cannot create krb5 ccache (%s)", krb5_get_err_text(context, problem));
       goto end;
    }
 
    maj_stat = gss_krb5_copy_ccache(&min_stat, delegated_cred, ccache);
    if (GSS_ERROR(maj_stat)) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	 "Cannot store delegated credential (%s)", 
 	 get_gss_error(r->pool, min_stat, "gss_krb5_copy_ccache"));
       goto end;
@@ -686,9 +702,9 @@ get_gss_creds(request_rec *r,
 			  	       GSS_C_NT_USER_NAME : GSS_C_NT_HOSTBASED_SERVICE,
 				  &server_name);
    if (GSS_ERROR(major_status)) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	            "%s", get_gss_error(r->pool, minor_status,
-		    "gss_import_name() failed"));
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "%s", get_gss_error(r->pool, minor_status,
+		 "gss_import_name() failed"));
       return HTTP_INTERNAL_SERVER_ERROR;
    }
    
@@ -697,9 +713,9 @@ get_gss_creds(request_rec *r,
 				   server_creds, NULL, NULL);
    gss_release_name(&minor_status2, &server_name);
    if (GSS_ERROR(major_status)) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	           "%s", get_gss_error(r->pool, minor_status,
-		 		       "gss_acquire_cred() failed"));
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "%s", get_gss_error(r->pool, minor_status,
+		 		     "gss_acquire_cred() failed"));
       return HTTP_INTERNAL_SERVER_ERROR;
    }
    
@@ -722,8 +738,8 @@ authenticate_user_gss(request_rec *r,
   if (gss_connection == NULL) {
      gss_connection = ap_pcalloc(r->connection->pool, sizeof(*gss_connection));
      if (gss_connection == NULL) {
-	ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	              "ap_pcalloc() failed (not enough memory)");
+	log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	           "ap_pcalloc() failed (not enough memory)");
 	ret = HTTP_INTERNAL_SERVER_ERROR;
 	goto end;
      }
@@ -743,8 +759,8 @@ authenticate_user_gss(request_rec *r,
   /* ap_getword() shifts parameter */
   auth_param = ap_getword_white(r->pool, &auth_line);
   if (auth_param == NULL) {
-     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	           "No Authorization parameter in request from client");
+     log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	        "No Authorization parameter in request from client");
      ret = HTTP_UNAUTHORIZED;
      goto end;
   }
@@ -752,8 +768,8 @@ authenticate_user_gss(request_rec *r,
   input_token.length = ap_base64decode_len(auth_param) + 1;
   input_token.value = ap_pcalloc(r->connection->pool, input_token.length);
   if (input_token.value == NULL) {
-     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	   	   "ap_pcalloc() failed (not enough memory)");
+     log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	   	"ap_pcalloc() failed (not enough memory)");
      ret = HTTP_INTERNAL_SERVER_ERROR;
      goto end;
   }
@@ -777,8 +793,8 @@ authenticate_user_gss(request_rec *r,
      len = ap_base64encode_len(output_token.length) + 1;
      token = ap_pcalloc(r->connection->pool, len + 1);
      if (token == NULL) {
-	ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	             "ap_pcalloc() failed (not enough memory)");
+	log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	           "ap_pcalloc() failed (not enough memory)");
         ret = HTTP_INTERNAL_SERVER_ERROR;
 	gss_release_buffer(&minor_status2, &output_token);
 	goto end;
@@ -791,9 +807,9 @@ authenticate_user_gss(request_rec *r,
   }
 
   if (GSS_ERROR(major_status)) {
-     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	           "%s", get_gss_error(r->pool, minor_status,
-		                       "gss_accept_sec_context() failed"));
+     log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	        "%s", get_gss_error(r->pool, minor_status,
+		                    "gss_accept_sec_context() failed"));
      ret = HTTP_UNAUTHORIZED;
      goto end;
   }
@@ -808,9 +824,9 @@ authenticate_user_gss(request_rec *r,
   major_status = gss_export_name(&minor_status, client_name, &output_token);
   gss_release_name(&minor_status, &client_name); 
   if (GSS_ERROR(major_status)) {
-    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	          "%s", get_gss_error(r->pool, minor_status, 
-		                      "gss_export_name() failed"));
+    log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	       "%s", get_gss_error(r->pool, minor_status, 
+		                   "gss_export_name() failed"));
     ret = HTTP_INTERNAL_SERVER_ERROR;
     goto end;
   }
@@ -890,7 +906,7 @@ int kerb_authenticate_user(request_rec *r)
 {
    kerb_auth_config *conf = 
       (kerb_auth_config *) ap_get_module_config(r->per_dir_config,
-						&kerb_auth_module);
+						&auth_kerb_module);
    const char *auth_type = NULL;
    const char *auth_line = NULL;
    const char *type = NULL;
@@ -901,7 +917,7 @@ int kerb_authenticate_user(request_rec *r)
 
 #ifdef KRB5
    if (type != NULL && strcasecmp(type, "KerberosV5") == 0) {
-      ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
+      log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
 	    "The use of KerberosV5 in AuthType is obsolete, please consider using the AuthKerberos option");
       conf->krb_auth_enable = 1;
    }
@@ -909,7 +925,7 @@ int kerb_authenticate_user(request_rec *r)
 
 #ifdef KRB4
    if (type != NULL && strcasecmp(type, "KerberosV4") == 0) {
-      ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
+      log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
 	    "The use of KerberosV4 in AuthType is obsolete, please consider using the AuthKerberos option");
       conf->krb_auth_enable = 1;
    }
@@ -955,7 +971,7 @@ int kerb_authenticate_user(request_rec *r)
  Module Setup/Configuration
  ***************************************************************************/
 #ifdef APXS1
-module MODULE_VAR_EXPORT kerb_auth_module = {
+module MODULE_VAR_EXPORT auth_kerb_module = {
 	STANDARD_MODULE_STUFF,
 	NULL,				/*      module initializer            */
 	kerb_dir_create_config,		/*      per-directory config creator  */
@@ -982,7 +998,7 @@ void kerb_register_hooks(apr_pool_t *p)
    ap_hook_check_user_id(kerb_authenticate_user, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
-module AP_MODULE_DECLARE_DATA kerb_auth_module =
+module AP_MODULE_DECLARE_DATA auth_kerb_module =
 {
    STANDARD20_MODULE_STUFF,
    kerb_dir_create_config,	/* create per-dir    conf structures  */
