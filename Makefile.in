@@ -8,10 +8,11 @@ DO_KRB5 = @DO_KRB5@
 
 CPPFLAGS = $(KRB5_CPPFLAGS) $(KRB4_CPPFLAGS) $(DEFS) -I. -Ispnegokrb5
 ifdef DO_KRB5
-	LDFLAGS = -Lspnegokrb5 -lspnegokrb5 $(KRB5_LDFLAGS) $(LIB_resolv)
+	LDFLAGS = -Lspnegokrb5 -lspnegokrb5 $(KRB5_LDFLAGS) $(KRB4_LDFLAGS) $(LIB_resolv)
 else
-	LDFLAGS = $(KRB5_LDFLAGS) $(LIB_resolv)
+	LDFLAGS = $(KRB5_LDFLAGS) $(KRB4_LDFLAGS) $(LIB_resolv)
 endif
+CFLAGS = -Wc-g
 
 all: modauthkerb
 
@@ -19,10 +20,10 @@ libspnegokrb5:
 	(cd spnegokrb5 && make)
 
 modauthkerb: libspnegokrb5
-	$(APXS) -c $(CPPFLAGS) $(LDFLAGS) src/mod_auth_kerb.c
+	$(APXS) -c $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) src/mod_auth_kerb.c
 
 install: $(TARGET)
-	$(APXS) -i $(CPPFLAGS) $(LDFLAGS) src/mod_auth_kerb.so
+	$(APXS) -i src/mod_auth_kerb.so
 
 clean:
 	(cd spnegokrb5 && make clean)
