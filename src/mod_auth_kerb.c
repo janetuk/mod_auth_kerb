@@ -651,18 +651,18 @@ int authenticate_user_krb5pwd(request_rec *r,
    }
 
    sent_pw = ap_pbase64decode(r->pool, auth_line);
-   if (sent_pw == NULL || *sent_pw == '\0') {
-      log_rerror(APLOG_MARK, APLOG_ERR, 0, r, 
-	         "empty passwords are not accepted");
-      ret = HTTP_UNAUTHORIZED;
-      goto end;
-   }
-
    sent_name = ap_getword (r->pool, &sent_pw, ':');
    /* do not allow user to override realm setting of server */
    if (strchr(sent_name, '@')) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
   		 "specifying realm in user name is prohibited");
+      ret = HTTP_UNAUTHORIZED;
+      goto end;
+   }
+
+   if (sent_pw == NULL || *sent_pw == '\0') {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "empty passwords are not accepted");
       ret = HTTP_UNAUTHORIZED;
       goto end;
    }
