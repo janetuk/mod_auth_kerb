@@ -14,6 +14,8 @@ else
 endif
 CFLAGS = -Wc-g
 
+.PHONY: all install clean distclean
+
 all: src/mod_auth_kerb.so
 
 spnegokrb5/libspnegokrb5.a:
@@ -22,8 +24,8 @@ spnegokrb5/libspnegokrb5.a:
 src/mod_auth_kerb.so: spnegokrb5/libspnegokrb5.a src/mod_auth_kerb.c
 	$(APXS) -c -o $@ $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) src/mod_auth_kerb.c
 
-install: $(TARGET)
-	$(APXS) -i src/mod_auth_kerb.so
+install:
+	$(APXS) -c -i $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) src/mod_auth_kerb.c
 
 clean:
 	(cd spnegokrb5 && make clean)
