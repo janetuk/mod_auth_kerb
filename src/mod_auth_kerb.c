@@ -7,6 +7,7 @@
  * Based on work by
  *   James E. Robinson, III <james@ncstate.net>
  *   Daniel Henninger <daniel@ncsu.edu>
+ *   Ludek Sulak <xsulak@fi.muni.cz>
  */
 
 /* ====================================================================
