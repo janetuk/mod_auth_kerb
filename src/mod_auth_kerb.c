@@ -882,7 +882,15 @@ get_gss_creds(request_rec *r,
    gss_name_t server_name = GSS_C_NO_NAME;
    char buf[1024];
 
-   snprintf(buf, sizeof(buf), "%s/%s", conf->krb_service_name, ap_get_server_name(r));
+#if 0
+   /* Don't specify service name. This makes MIT 1.3 not to use replay caches,
+    * which causes large problems with the Microsoft krb5 implementation. MS
+    * obviously uses a format of the krb5 authenticator that is considered by
+    * the MIT as replay (Two valid MS authenticators may contain the same time
+    * and utime fields and only differ in the sequential numbers).
+    */
+   snprintf(buf, sizeof(buf), "%s/%s", conf->krb_service_name,
+	 ap_get_server_name(r));
 
    input_token.value = buf;
    input_token.length = strlen(buf) + 1;
@@ -896,6 +904,7 @@ get_gss_creds(request_rec *r,
 		 "gss_import_name() failed"));
       return HTTP_INTERNAL_SERVER_ERROR;
    }
+#endif
    
    major_status = gss_acquire_cred(&minor_status, server_name, GSS_C_INDEFINITE,
 			           GSS_C_NO_OID_SET, GSS_C_ACCEPT,
