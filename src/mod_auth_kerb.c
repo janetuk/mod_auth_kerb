@@ -251,23 +251,17 @@ void log_rerror(const char *file, int line, int level, int status,
                 const request_rec *r, const char *fmt, ...)
 {
    char errstr[1024];
-   char errnostr[1024];
    va_list ap;
 
    va_start(ap, fmt);
    vsnprintf(errstr, sizeof(errstr), fmt, ap);
    va_end(ap);
 
-   errnostr[0] = '\0';
-   if (errno)
-      snprintf(errnostr, sizeof(errnostr), "%s: (%s)", errstr, strerror(errno));
-   else
-      snprintf(errnostr, sizeof(errnostr), "%s", errstr);
    
 #ifdef APXS1
-   ap_log_rerror(file, line, level | APLOG_NOERRNO, r, "%s", errnostr);
+   ap_log_rerror(file, line, level | APLOG_NOERRNO, r, "%s", errstr);
 #else
-   ap_log_rerror(file, line, level | APLOG_NOERRNO, status, r, "%s", errnostr);
+   ap_log_rerror(file, line, level | APLOG_NOERRNO, status, r, "%s", errstr);
 #endif
 }
 
