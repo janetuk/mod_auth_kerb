@@ -767,31 +767,39 @@ end:
  ********************************************************************/
 
 static const char *
-get_gss_error(MK_POOL *p, OM_uint32 error_status, char *prefix)
+get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 {
-   OM_uint32 maj_stat, min_stat;
+   OM_uint32 maj_stat, min_stat; 
    OM_uint32 msg_ctx = 0;
    gss_buffer_desc status_string;
-   char buf[1024];
+   char *err_msg;
    size_t len;
 
-   snprintf(buf, sizeof(buf), "%s", prefix);
-   len = strlen(buf);
+   err_msg = ap_pstrdup(p, prefix);
    do {
       maj_stat = gss_display_status (&min_stat,
-	                             error_status,
-				     GSS_C_MECH_CODE,
+	                             err_maj,
+				     GSS_C_GSS_CODE,
 				     GSS_C_NO_OID,
 				     &msg_ctx,
 				     &status_string);
-      if (sizeof(buf) > len + status_string.length + 1) {
-         sprintf(buf+len, ": %s", (char*) status_string.value);
-         len += status_string.length;
-      }
+      err_msg = ap_pstrcat(p, err_msg, ": ", (char*) status_string.value, NULL);
+      gss_release_buffer(&min_stat, &status_string);
+      
+      if (GSS_ERROR(maj_stat) || msg_ctx == 0)
+	 break;
+
+      maj_stat = gss_display_status (&min_stat,
+	                             err_min,
+				     GSS_C_MECH_CODE,
+				     GSS_C_NULL_OID,
+				     &msg_ctx,
+				     &status_string);
+      err_msg = ap_pstrcat(p, err_msg, ": ", (char*) status_string.value, NULL);
       gss_release_buffer(&min_stat, &status_string);
    } while (!GSS_ERROR(maj_stat) && msg_ctx != 0);
 
-   return (ap_pstrdup(p, buf));
+   return err_msg;
 }
 
 static int
@@ -848,7 +856,7 @@ store_gss_creds(request_rec *r, kerb_auth_config *conf, char *princ_name,
    if (GSS_ERROR(maj_stat)) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	 "Cannot store delegated credential (%s)", 
-	 get_gss_error(r->pool, min_stat, "gss_krb5_copy_ccache"));
+	 get_gss_error(r->pool, maj_stat, min_stat, "gss_krb5_copy_ccache"));
       goto end;
    }
 
@@ -885,7 +893,7 @@ get_gss_creds(request_rec *r,
 				  &server_name);
    if (GSS_ERROR(major_status)) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	         "%s", get_gss_error(r->pool, minor_status,
+	         "%s", get_gss_error(r->pool, major_status, minor_status,
 		 "gss_import_name() failed"));
       return HTTP_INTERNAL_SERVER_ERROR;
    }
@@ -896,7 +904,7 @@ get_gss_creds(request_rec *r,
    gss_release_name(&minor_status2, &server_name);
    if (GSS_ERROR(major_status)) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	         "%s", get_gss_error(r->pool, minor_status,
+	         "%s", get_gss_error(r->pool, major_status, minor_status,
 		 		     "gss_acquire_cred() failed"));
       return HTTP_INTERNAL_SERVER_ERROR;
    }
@@ -1037,7 +1045,7 @@ authenticate_user_gss(request_rec *r,
 
   if (GSS_ERROR(major_status)) {
      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	        "%s", get_gss_error(r->pool, minor_status,
+	        "%s", get_gss_error(r->pool, major_status, minor_status,
 		                    "gss_accept_sec_context() failed"));
      ret = HTTP_UNAUTHORIZED;
      goto end;
@@ -1054,7 +1062,7 @@ authenticate_user_gss(request_rec *r,
   gss_release_name(&minor_status, &client_name); 
   if (GSS_ERROR(major_status)) {
     log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	       "%s", get_gss_error(r->pool, minor_status, 
+	       "%s", get_gss_error(r->pool, major_status, minor_status,
 		                   "gss_export_name() failed"));
     ret = HTTP_INTERNAL_SERVER_ERROR;
     goto end;
