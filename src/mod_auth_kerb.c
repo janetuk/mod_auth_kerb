@@ -317,50 +317,42 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
 		 const char *service)
 {
    int ret;
-   krb5_context kcontext;
-   krb5_principal server, client;
-   krb5_timestamp now;
-   krb5_creds my_creds;
-   krb5_flags options = 0;
-   krb5_principal me = NULL;
-   krb5_data tgtname = {
-      0,
-      KRB5_TGS_NAME_SIZE,
-      KRB5_TGS_NAME
-   };
+   krb5_creds creds;
+   krb5_principal server = NULL;
+   krb5_error_code ret;
+   krb5_verify_init_creds_opt opt;
 
-   return 0;
+   memset(&creds, 0, sizeof(creds));
 
-   memset((char *)&my_creds, 0, sizeof(my_creds));
-   my_creds.client = principal;
+   ret = krb5_get_init_creds_password(context, &creds, principal, password,
+	 			      krb5_prompter_posix, NULL, 0, NULL, NULL);
+   if (ret)
+      return ret;
 
-   if (krb5_build_principal_ext(kcontext, &server,
-	    			krb5_princ_realm(kcontext, me)->length,
-				krb5_princ_realm(kcontext, me)->data,
-				tgtname.length, tgtname.data,
-				krb5_princ_realm(kcontext, me)->length,
-				krb5_princ_realm(kcontext, me)->data,
-				0)) {
-	return ret;
+   ret = krb5_sname_to_principal(context, NULL, service, 
+	 			 KRB5_NT_SRV_HST, &server);
+   if (ret)
+      goto end;
+
+   krb5_verify_init_creds_opt_init(&opt);
+   krb5_verify_init_creds_opt_set_ap_req_nofail(&opt, secure);
+
+   ret = krb5_verify_init_creds(context, &creds, server, NULL, NULL, &opt);
+   if (ret)
+      goto end;
+
+   if (ccache) {
+      ret = krb5_cc_initialize(context, ccache, principal);
+      if (ret == 0)
+	 ret = krb5_cc_store_cred(context, ccache, &creds);
+      krb5_cc_close(context, ccache);
    }
 
-   my_creds.server = server;
-   if (krb5_timeofday(kcontext, &now))
-   	return -1;
-
-   my_creds.times.starttime = 0;
-   /* XXX
-   my_creds.times.endtime = now + lifetime;
-   my_creds.times.renew_till = now + renewal;
-   */
-
-   ret = krb5_get_in_tkt_with_password(kcontext, options, 0, NULL, 0,
-	 			       password, ccache, &my_creds, 0);
-   if (ret) {
-   	return ret;
-   }
-
-   return 0;
+end:
+   krb5_free_creds_contents(context, &creds);
+   if (server)
+      krb5_free_principal(context, service);
+   return ret;
 }
 #endif
 
@@ -910,26 +902,28 @@ end:
 
 
 static void
-note_kerb_auth_failure(request_rec *r, const kerb_auth_config *conf)
+note_kerb_auth_failure(request_rec *r, const kerb_auth_config *conf,
+      		       int use_krb4, int use_krb5)
 {
    const char *auth_name = NULL;
+   int set_basic = 0;
 
    /* get the user realm specified in .htaccess */
    auth_name = ap_auth_name(r);
 
-   /* XXX check AuthType */
-
    /* XXX should the WWW-Authenticate header be cleared first? */
 #ifdef KRB5
-   if (conf->krb_method_gssapi)
+   if (use_krb5 && conf->krb_method_gssapi)
       ap_table_add(r->err_headers_out, "WWW-Authenticate", "GSS-Negotiate ");
-   if (conf->krb_method_k5pass)
+   if (use_krb5 && conf->krb_method_k5pass) {
       ap_table_add(r->err_headers_out, "WWW-Authenticate",
                    ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
+      set_basic = 1;
+   }
 #endif
 
 #ifdef KRB4
-   if (conf->krb_method_k4pass)
+   if (use_krb4 && conf->krb_method_k4pass && !set_basic)
       ap_table_add(r->err_headers_out, "WWW-Authenticate",
 	    	   ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
 #endif
@@ -953,7 +947,7 @@ int kerb_authenticate_user(request_rec *r)
       use_krb5 = use_krb4 = 1;
    else if(type && strcasecmp(type, "KerberosV5") == 0)
       use_krb4 = 0;
-   else if (type && strcasecmp(type, "KerberosV4") == 0)
+   else if(type && strcasecmp(type, "KerberosV4") == 0)
       use_krb5 = 0;
    else
       return DECLINED;
@@ -961,7 +955,7 @@ int kerb_authenticate_user(request_rec *r)
    /* get what the user sent us in the HTTP header */
    auth_line = MK_TABLE_GET(r->headers_in, "Authorization");
    if (!auth_line) {
-      note_kerb_auth_failure(r, conf);
+      note_kerb_auth_failure(r, conf, use_krb4, use_krb5);
       return HTTP_UNAUTHORIZED;
    }
    auth_type = ap_getword_white(r->pool, &auth_line);
@@ -985,7 +979,7 @@ int kerb_authenticate_user(request_rec *r)
 #endif
 
    if (ret == HTTP_UNAUTHORIZED)
-      note_kerb_auth_failure(r, conf);
+      note_kerb_auth_failure(r, conf, use_krb4, use_krb5);
 
    return ret;
 }
