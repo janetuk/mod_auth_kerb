@@ -1,3 +1,7 @@
+/*
+ * XXX License
+ */
+
 #ifndef _MIT_INTERNALS_H_
 #define _MIT_INTERNALS_H_
 
@@ -106,4 +110,4 @@ typedef struct _krb5_gss_cred_id_rec {
 	krb5_timestamp tgt_expire;
 } krb5_gss_cred_id_rec, *krb5_gss_cred_id_t;
 
-#endif _MIT_INTERNALS_H_
+#endif /* _MIT_INTERNALS_H_ */

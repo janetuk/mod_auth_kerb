@@ -58,8 +58,8 @@
 #ifdef STANDARD20_MODULE_STUFF
 #include <ap_compat.h>
 #include <apr_strings.h>
+#include <apr_base64.h>
 #endif
-
 
 #ifdef KRB5
 #include <krb5.h>
@@ -68,6 +68,7 @@
 #else
 #  include <gssapi/gssapi.h>
 #  include <gssapi/gssapi_generic.h>
+#  include <gssapi/gssapi_krb5.h>
 #  define GSS_C_NT_USER_NAME gss_nt_user_name
 #  define GSS_C_NT_HOSTBASED_SERVICE gss_nt_service_name
 #  define krb5_get_err_text(context,code) error_message(code)
@@ -84,6 +85,9 @@
 #include <krb.h>
 #include <netdb.h> /* gethostbyname() */
 #endif /* KRB4 */
+
+/* XXX remove dependency on unistd.h ??? */
+#include <unistd.h>
 
 #ifdef STANDARD20_MODULE_STUFF
 module AP_MODULE_DECLARE_DATA auth_kerb_module;
@@ -460,7 +464,7 @@ verify_krb5_init_creds(krb5_context context, krb5_creds *creds,
    krb5_auth_context auth_context = NULL;
    krb5_keytab keytab = NULL;
 
-   krb5_data_zero (&req);
+   memset(&req, 0, sizeof(req));
 
    if (ap_req_keytab == NULL) {
       ret = krb5_kt_default (context, &keytab);
@@ -501,6 +505,7 @@ verify_krb5_init_creds(krb5_context context, krb5_creds *creds,
       goto end;
 
    krb5_auth_con_free (context, auth_context);
+   auth_context = NULL;
    ret = krb5_auth_con_init(context, &auth_context);
    if (ret)
       goto end;
