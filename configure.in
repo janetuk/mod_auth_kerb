@@ -119,6 +119,10 @@ if test "x$with_krb4" != "xno"; then
      if test "x$KRB4_LDFLAGS" = "x"; then
         KRB4_CPPFLAGS=`$krb5_config_command --cflags krb4 2>/dev/null`
         KRB4_LDFLAGS=`$krb5_config_command --libs krb4 2>/dev/null`
+        if test $? -ne 0; then
+           KRB4_CPPFLAGS=""
+           KRB4_LDFLAGS=""
+        fi
      fi
   fi
   if test "x$KRB4_LDFLAGS" = "x"; then
