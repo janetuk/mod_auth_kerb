@@ -179,7 +179,7 @@ static const command_rec kerb_auth_cmds[] = {
    command("KrbVerifyKDC", ap_set_flag_slot, krb_verify_kdc,
      FLAG, "Verify tickets against keytab to prevent KDC spoofing attacks."),
 
-   command("KrbServiceName", ap_set_file_slot, krb_service_name,
+   command("KrbServiceName", ap_set_string_slot, krb_service_name,
      TAKE1, "Service name to be used by Apache for authentication."),
 
    command("KrbAuthoritative", ap_set_flag_slot, krb_authoritative,
@@ -423,8 +423,9 @@ authenticate_user_krb4pwd(request_rec *r,
    } while (realms && *realms);
 
    if (ret) {
+      /* XXX log only in the verify_krb4_user() call */
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "Verifying krb4 password failed");
-      ret = (all_principals_unkown = 1 && ret == KDC_PR_UNKNOWN) ?
+      ret = (!conf->krb_authoritative && all_principals_unkown == 1 && ret == KDC_PR_UNKNOWN) ?
 	         DECLINED : HTTP_UNAUTHORIZED;
       goto end;
    }
@@ -712,10 +713,11 @@ int authenticate_user_krb5pwd(request_rec *r,
    memset((char *)sent_pw, 0, strlen(sent_pw));
 
    if (code) {
+      /* XXX log only in the verify_krb5_user() call */
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	         "Verifying krb5 password failed: %s",
 		 krb5_get_err_text(kcontext, code));
-      if (all_principals_unkown = 1 && code == KRB5KDC_ERR_C_PRINCIPAL_UNKNOWN)
+      if (!conf->krb_authoritative && all_principals_unkown == 1 && code == KRB5KDC_ERR_C_PRINCIPAL_UNKNOWN)
 	 ret = DECLINED;
       else
 	 ret = HTTP_UNAUTHORIZED;
