@@ -31,7 +31,6 @@ module AP_MODULE_DECLARE_DATA kerb_auth_module;
 #define MK_TABLE_SET ap_table_set
 #define MK_TABLE_TYPE table
 #define MK_PSTRDUP ap_pstrdup
-#define MK_PROXY STD_PROXY
 #define MK_USER r->connection->user
 #define MK_AUTH_TYPE r->connection->ap_auth_type
 #define MK_ARRAY_HEADER array_header
@@ -41,7 +40,6 @@ module AP_MODULE_DECLARE_DATA kerb_auth_module;
 #define MK_TABLE_SET apr_table_set
 #define MK_TABLE_TYPE apr_table_t
 #define MK_PSTRDUP apr_pstrdup
-#define MK_PROXY PROXYREQ_PROXY
 #define MK_USER r->user
 #define MK_AUTH_TYPE r->ap_auth_type
 #define MK_ARRAY_HEADER apr_array_header_t
@@ -512,7 +510,8 @@ int authenticate_user_krb5pwd(request_rec *r,
    }
 
    if (conf->krb_5_keytab)
-      setenv("KRB5_KTNAME", conf->krb_5_keytab, 1);
+      /* setenv("KRB5_KTNAME", conf->krb_5_keytab, 1); */
+      kcontext->default_keytab = conf->krb_5_keytab;
 
    realms = conf->krb_auth_realms;
    do {
@@ -947,42 +946,6 @@ int kerb_authenticate_user(request_rec *r)
 
    return ret;
 }
-
-
-#if 0
-int kerb_check_user_access(request_rec *r)
-{
-	register int x;
-	const char *t, *w;
-	const MK_ARRAY_HEADER *reqs_arr = ap_requires(r);
-	require_line *reqs;
-	kerb_auth_config *conf =
-		(kerb_auth_config *)ap_get_module_config(r->per_dir_config,
-						&kerb_auth_module);
-
-	if (reqs_arr == NULL) {
-		return OK;
-	}
-	reqs = (require_line *)reqs_arr->elts;
-
-	for (x = 0; x < reqs_arr->nelts; x++) {
-		t = reqs[x].requirement;
-		w = ap_getword_white(r->pool, &t);
-		if (strcmp(w, "realm") == 0) {
-			while (t[0] != '\0') {
-				w = ap_getword_conf(r->pool, &t);
-				if (strcmp(MK_USER, w) == 0) {
-					return OK;
-				}
-			}
-		}
-	}
-
-	return DECLINED;
-}
-#endif
-
-
 
 
 /*************************************************************************** 
