@@ -401,10 +401,10 @@ authenticate_user_krb4pwd(request_rec *r,
 
       if (realm == NULL) {
 	 ret = krb_get_lrealm(lrealm, 1);
+	 if (ret)
+	    break;
 	 realm = lrealm;
       }
-      if (realm == NULL || *realm == '\0')
-	 break;
 
       ret = verify_krb4_user(r, (char *)sent_name, 
 	                     (sent_instance) ? sent_instance : "",
@@ -535,29 +535,30 @@ create_krb5_ccache(krb5_context kcontext,
 		   krb5_ccache *ccache)
 {
    char *ccname;
+   int fd;
    krb5_error_code problem;
    int ret;
    krb5_ccache tmp_ccache = NULL;
 
-#ifdef HAVE_KRB5_CC_GEN_NEW
-   problem = krb5_cc_gen_new(kcontext, &krb5_fcc_ops, &tmp_ccache);
-#else
-   /* only older MIT seem to not have the krb5_cc_gen_new() call, so we use
-    * MIT specific call here */
-   problem = krb5_fcc_generate_new(kcontext, &tmp_ccache);
-   /* krb5_fcc_generate_new() doesn't set KRB5_TC_OPENCLOSE, which makes 
-      krb5_cc_initialize() fail */
-   krb5_fcc_set_flags(kcontext, tmp_ccache, KRB5_TC_OPENCLOSE);
-#endif
-   if (problem) {
+   ccname = ap_psprintf(r->pool, "FILE:%s/krb5cc_apache_XXXXXX", P_tmpdir);
+   fd = mkstemp(ccname + strlen("FILE:"));
+   if (fd < 0) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-		 "Cannot create file for new krb5 ccache: %s",
-		 krb5_get_err_text(kcontext, problem));
+                 "mkstemp() failed: %s", strerror(errno));
       ret = HTTP_INTERNAL_SERVER_ERROR;
       goto end;
    }
+   close(fd);
 
-   ccname = ap_pstrdup(r->pool, krb5_cc_get_name(kcontext, tmp_ccache));
+   problem = krb5_cc_resolve(kcontext, ccname, &tmp_ccache);
+   if (problem) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                 "krb5_cc_resolve() failed: %s",
+                 krb5_get_err_text(kcontext, problem));
+      ret = HTTP_INTERNAL_SERVER_ERROR;
+      unlink(ccname);
+      goto end;
+   }
 
    problem = krb5_cc_initialize(kcontext, tmp_ccache, princ);
    if (problem) {
@@ -642,6 +643,8 @@ int authenticate_user_krb5pwd(request_rec *r,
    int             ret;
    char            *name = NULL;
    int             all_principals_unkown;
+   char            *ccname = NULL;
+   int             fd;
 
    code = krb5_init_context(&kcontext);
    if (code) {
@@ -658,20 +661,26 @@ int authenticate_user_krb5pwd(request_rec *r,
   		 "specifying realm in user name is prohibited");
       ret = HTTP_UNAUTHORIZED;
       goto end;
-   } 
+   }
 
-#ifdef HAVE_KRB5_CC_GEN_NEW
-   code = krb5_cc_gen_new(kcontext, &krb5_mcc_ops, &ccache);
-#else
-   /* only older MIT seem to not have the krb5_cc_gen_new() call, so we use
-    * MIT specific call here */
-   code = krb5_mcc_generate_new(kcontext, &ccache);
-#endif
-   if (code) {
-      log_rerror(APLOG_MARK, APLOG_ERR, 0, r, 
-	         "Cannot generate new ccache: %s",
-		 krb5_get_err_text(kcontext, code));
+   /* XXX Heimdal allows to use the MEMORY: type with empty argument ? */
+   ccname = ap_psprintf(r->pool, "MEMORY:%s/krb5cc_apache_XXXXXX", P_tmpdir);
+   fd = mkstemp(ccname + strlen("MEMORY:"));
+   if (fd < 0) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                 "mkstemp() failed: %s", strerror(errno));
       ret = HTTP_INTERNAL_SERVER_ERROR;
+      goto end;
+   }
+   close(fd);
+
+   code = krb5_cc_resolve(kcontext, ccname, &ccache);
+   if (code) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                 "krb5_cc_resolve() failed: %s",
+                 krb5_get_err_text(kcontext, code));
+      ret = HTTP_INTERNAL_SERVER_ERROR;
+      unlink(ccname);
       goto end;
    }
 
