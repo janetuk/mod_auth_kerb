@@ -76,7 +76,7 @@
 #endif /* KRB5 */
 
 #ifdef KRB4
-/*Prevent warning about closesocket redefinition (Apache's ap_config.h and 
+/* Prevent warning about closesocket redefinition (Apache's ap_config.h and 
  * MIT Kerberos' port-sockets.h both define it as close) */
 #ifdef closesocket
 #  undef closesocket
