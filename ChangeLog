@@ -1,3 +1,27 @@
+2002-09-02  Daniel Henninger  <daniel@ncsu.edu>
+
+	* apache1/auth_cmds.c:
+	* apache2/auth_cmds.c:
+	Added flag parsing for options and finished up first two commands.
+
+	* apache1/auth_config.h:
+	* apache2/auth_config.h:
+	Added auth config struct.
+
+	* apache1/auth_user.c:
+	* apache2/auth_user.c:
+	Added fail_status and kerbauthtype functionality.
+
+	* apache1/dir_config.c:
+	* apache2/dir_config.c:
+	Added defaults for current flags.
+
+2002-09-01  Daniel Henninger  <daniel@ncsu.edu>
+
+	* apache1/auth_cmds.c:
+	* apache2/auth_cmds.c:
+	Put together everything but flag parsing for the first batch of options.
+
 2002-07-09  Daniel Henninger  <daniel@ncsu.edu>
 
 	* apache1/auth_cmds.c:

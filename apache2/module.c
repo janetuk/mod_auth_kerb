@@ -1,7 +1,7 @@
 module AP_MODULE_DECLARE_DATA kerb_auth_module =
 {
 	STANDARD20_MODULE_STUFF,
-	NULL,				/* dir config creater */
+	kerb_dir_config,		/* dir config creater */
 	NULL,				/* dir merger */
 	NULL,				/* server config */
 	NULL,				/* merge server config */

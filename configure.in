@@ -290,12 +290,18 @@ GENSOURCES=""
 case $ac_api in
 	'apache1')
 		GENHEADERS="$GENHEADERS apache1/api_inc.h"
+		GENHEADERS="$GENHEADERS apache1/auth_config.h"
 		GENSOURCES="$GENSOURCES apache1/auth_user.c"
+		GENSOURCES="$GENSOURCES apache1/auth_cmds.c"
+		GENSOURCES="$GENSOURCES apache1/dir_config.c"
 		GENSOURCES="$GENSOURCES apache1/module.c"
 		;;
 	'apache2')
 		GENHEADERS="$GENHEADERS apache2/api_inc.h"
+		GENHEADERS="$GENHEADERS apache2/auth_config.h"
 		GENSOURCES="$GENSOURCES apache2/auth_user.c"
+		GENSOURCES="$GENSOURCES apache2/auth_cmds.c"
+		GENSOURCES="$GENSOURCES apache2/dir_config.c"
 		GENSOURCES="$GENSOURCES apache2/hooks.c"
 		GENSOURCES="$GENSOURCES apache2/module.c"
 		;;

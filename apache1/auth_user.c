@@ -13,29 +13,36 @@ int kerb_authenticate_user(request_rec *r) {
 					(r->proxyreq == STD_PROXY)
 						? "Proxy-Authorization"
 						: "Authorization");
+	kerb_auth_config *conf =
+		(kerb_auth_config *)ap_get_module_config(r->per_dir_config,
+					&kerb_auth_module);
 
 	type = ap_auth_type(r);
 
 	if (type != NULL) {
 #ifdef KRB5
-		if (strncasecmp(type, "KerberosV5", 10) == 0) {
+		if ((strncasecmp(type, "KerberosV5", 10) == 0) ||
+		    (strncasecmp(conf->krb_auth_type, "KerberosV5", 10) == 0)) {
 			KerberosV5 = 1;
 		}
 #endif /* KRB5 */
 
 #ifdef KRB4
-		if (strncasecmp(type, "KerberosV4", 10) == 0) {
+		if ((strncasecmp(type, "KerberosV4", 10) == 0) ||
+		    (strncasecmp(conf->krb_auth_type, "KerberosV4", 10) == 0)) {
 			KerberosV4 = 1;
 		}
 #endif /* KRB4 */
 
 #if defined(KRB5) && defined(KRB4)
-		if (strncasecmp(type, "KerberosDualV5V4", 15) == 0) {
+		if ((strncasecmp(type, "KerberosDualV5V4", 15) == 0) ||
+		    (strncasecmp(conf->krb_auth_type, "KerberosDualV5V4", 15) == 0)) {
 			KerberosV5 = 1;
 			KerberosV4 = 1;
 		}
 
-		if (strncasecmp(type, "KerberosDualV4V5", 15) == 0) {
+		if ((strncasecmp(type, "KerberosDualV4V5", 15) == 0) ||
+		    (strncasecmp(conf->krb_auth_type, "KerberosDualV4V5", 15) == 0)) {
 			KerberosV5 = 1;
 			KerberosV4 = 1;
 			KerberosV4first = 1;
@@ -74,7 +81,7 @@ int kerb_authenticate_user(request_rec *r) {
 			retcode = OK;
 		}
 		else {
-			retcode = HTTP_UNAUTHORIZED;
+			retcode = conf->krb_fail_status;
 		}
 	}
 #endif /* KRB5 */
@@ -85,7 +92,7 @@ int kerb_authenticate_user(request_rec *r) {
 			retcode = OK;
 		}
 		else {
-			retcode = HTTP_UNAUTHORIZED;
+			retcode = conf->krb_fail_status;
 		}
 	}
 #endif /* KRB4 */
@@ -96,7 +103,7 @@ int kerb_authenticate_user(request_rec *r) {
 			retcode = OK;
 		}
 		else {
-			retcode = HTTP_UNAUTHORIZED;
+			retcode = conf->krb_fail_status;
 		}
 	}
 #endif /* KRB5 && KRB4 */
