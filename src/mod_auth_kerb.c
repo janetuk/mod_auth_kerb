@@ -887,7 +887,12 @@ authenticate_user_gss(request_rec *r,
   }
   input_token.length = ap_base64decode(input_token.value, auth_param);
 
-  major_status = gss_accept_sec_context(&minor_status,
+#if 0 
+  major_status = gss_accept_sec_context(
+#else
+  major_status = gss_accept_sec_context_spnego(
+#endif
+				        &minor_status,
 	                                &gss_connection->context,
 					gss_connection->server_creds,
 					&input_token,
