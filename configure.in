@@ -133,6 +133,11 @@ if test "x$with_krb5" != "xno" ; then
 
      if test -n "$have_heimdal"; then
 	SPNEGO_SRCS="\
+		spnegokrb5/asn1_MechType.c	   \
+		spnegokrb5/asn1_MechTypeList.c	   \
+		spnegokrb5/asn1_ContextFlags.c     \
+		spnegokrb5/asn1_NegTokenInit.c	   \
+		spnegokrb5/asn1_NegTokenTarg.c	   \
 		spnegokrb5/init_sec_context.c      \
 		spnegokrb5/accept_sec_context.c    \
 		spnegokrb5/encapsulate.c           \
