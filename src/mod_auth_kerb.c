@@ -316,7 +316,6 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
       		 krb5_ccache ccache, const char *password, krb5_boolean secure,
 		 const char *service)
 {
-   int ret;
    krb5_creds creds;
    krb5_principal server = NULL;
    krb5_error_code ret;
@@ -324,8 +323,9 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
 
    memset(&creds, 0, sizeof(creds));
 
-   ret = krb5_get_init_creds_password(context, &creds, principal, password,
-	 			      krb5_prompter_posix, NULL, 0, NULL, NULL);
+   ret = krb5_get_init_creds_password(context, &creds, principal, 
+	 			      (char *)password, krb5_prompter_posix,
+				      NULL, 0, NULL, NULL);
    if (ret)
       return ret;
 
@@ -345,13 +345,12 @@ krb5_verify_user(krb5_context context, krb5_principal principal,
       ret = krb5_cc_initialize(context, ccache, principal);
       if (ret == 0)
 	 ret = krb5_cc_store_cred(context, ccache, &creds);
-      krb5_cc_close(context, ccache);
    }
 
 end:
-   krb5_free_creds_contents(context, &creds);
+   krb5_free_cred_contents(context, &creds);
    if (server)
-      krb5_free_principal(context, service);
+      krb5_free_principal(context, server);
    return ret;
 }
 #endif
@@ -400,6 +399,9 @@ create_krb5_ccache(krb5_context kcontext,
    problem = krb5_cc_gen_new(kcontext, &krb5_fcc_ops, &tmp_ccache);
 #else
    problem = krb5_fcc_generate_new(kcontext, &tmp_ccache);
+   /* krb5_fcc_generate_new() doesn't set KRB5_TC_OPENCLOSE, which makes 
+      krb5_cc_initialize() fail */
+   krb5_fcc_set_flags(kcontext, tmp_ccache, KRB5_TC_OPENCLOSE);
 #endif
    if (problem) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
@@ -414,7 +416,7 @@ create_krb5_ccache(krb5_context kcontext,
    problem = krb5_cc_initialize(kcontext, tmp_ccache, princ);
    if (problem) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-		 "Cannot create krb5 ccache %s: krb5_cc_initialize() failed: %s",
+		 "Cannot initialize krb5 ccache %s: krb5_cc_initialize() failed: %s",
 		 ccname, krb5_get_err_text(kcontext, problem));
       ret = HTTP_INTERNAL_SERVER_ERROR;
       goto end;
