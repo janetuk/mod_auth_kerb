@@ -5,6 +5,6 @@ module AP_MODULE_DECLARE_DATA kerb_auth_module =
 	NULL,				/* dir merger */
 	NULL,				/* server config */
 	NULL,				/* merge server config */
-	NULL,				/* command apr_table_t */
+	kerb_auth_cmds,			/* command apr_table_t */
 	kerb_register_hooks		/* register hooks */
 };

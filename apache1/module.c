@@ -5,7 +5,7 @@ module kerb_auth_module = {
 	NULL,				/* dir merger */
 	NULL,				/* server config */
 	NULL,				/* merge server config */
-	NULL,				/* command table */
+	kerb_auth_cmds,			/* command table */
 	NULL,				/* handlers */
 	NULL,				/* filename translation */
 	kerb_authenticate_user,		/* check_user_id */
