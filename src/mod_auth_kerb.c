@@ -58,7 +58,6 @@ typedef struct {
 	int krb_fail_status;
 	char *krb_force_instance;
 	int krb_save_credentials;
-	char *krb_tmp_dir;
 	char *service_name;
 	char *krb_lifetime;
 #ifdef KRB5
@@ -108,9 +107,6 @@ static const command_rec kerb_auth_cmds[] = {
 
    command("KrbSaveTickets", ap_set_flag_slot, krb_save_credentials,
      FLAG, "Alias for KrbSaveCredentials."),
-
-   command("KrbTmpdir", ap_set_string_slot, krb_tmp_dir,
-     TAKE1, "Path to store ticket files and such in."),
 
    command("KrbServiceName", ap_set_string_slot, service_name,
      TAKE1, "Kerberos service name to be used by apache."),
@@ -262,9 +258,7 @@ int kerb4_password_validate(request_rec *r, const char *user, const char *pass)
 
 	if (conf->krb_save_credentials) {
 		tfname = (char *)malloc(sizeof(char) * MAX_STRING_LEN);
-		sprintf(tfname, "%s/k5cc_ap_%s",
-			conf->krb_tmp_dir ? conf->krb_tmp_dir : "/tmp",
-			MK_USER);
+		sprintf(tfname, "/tmp/k5cc_ap_%s", MK_USER);
 
 		if (!strcmp(instance, "")) {
 			tfname = strcat(tfname, ".");
@@ -276,8 +270,7 @@ int kerb4_password_validate(request_rec *r, const char *user, const char *pass)
 			tfname = strcat(tfname, realm);
 		}
 
-		for (c = tfname + strlen(conf->krb_tmp_dir ? conf->krb_tmp_dir :
-				"/tmp") + 1; *c; c++) {
+		for (c = tfname + strlen("/tmp") + 1; *c; c++) {
 			if (*c == '/')
 				*c = '.';
 		}
@@ -398,53 +391,49 @@ create_krb5_ccache(krb5_context kcontext,
 		   krb5_principal princ,
 		   krb5_ccache *ccache)
 {
-	char *c, ccname[MAX_STRING_LEN];
-	krb5_error_code problem;
-	int ret;
-	krb5_ccache tmp_ccache = NULL;
+   char *ccname;
+   krb5_error_code problem;
+   int ret;
+   krb5_ccache tmp_ccache = NULL;
 
-	snprintf(ccname, sizeof(ccname), "FILE:%s/k5cc_ap_%s",
-  	        conf->krb_tmp_dir ? conf->krb_tmp_dir : "/tmp",
-		MK_USER);
+#ifdef HEIMDAL
+   problem = krb5_cc_gen_new(kcontext, &krb5_fcc_ops, &tmp_ccache);
+#else
+   problem = krb5_fcc_generate_new(kcontext, &tmp_ccache);
+#endif
+   if (problem) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+		 "Cannot create file for new krb5 ccache: %s",
+		 krb5_get_err_text(kcontext, problem));
+      ret = HTTP_INTERNAL_SERVER_ERROR;
+      goto end;
+   }
 
-	for (c = ccname + strlen(conf->krb_tmp_dir ? conf->krb_tmp_dir :
-	     "/tmp") + 1; *c; c++) {
-		if (*c == '/')
-			*c = '.';
-	}
+   ccname = ap_pstrdup(r->pool, krb5_cc_get_name(kcontext, tmp_ccache));
 
-	problem = krb5_cc_resolve(kcontext, ccname, &tmp_ccache);
-	if (problem) {
-		log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-		           "Cannot create krb5 ccache: krb5_cc_resolve() failed: %s",
-		  	   krb5_get_err_text(kcontext, problem));
-		ret = HTTP_INTERNAL_SERVER_ERROR;
-		goto end;
-	}
+   problem = krb5_cc_initialize(kcontext, tmp_ccache, princ);
+   if (problem) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+		 "Cannot create krb5 ccache %s: krb5_cc_initialize() failed: %s",
+		 ccname, krb5_get_err_text(kcontext, problem));
+      ret = HTTP_INTERNAL_SERVER_ERROR;
+      goto end;
+   }
 
-	problem = krb5_cc_initialize(kcontext, tmp_ccache, princ);
-	if (problem) {
-		log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-		      "Cannot create krb5 ccache: krb5_cc_initialize() failed: %s",
-		      krb5_get_err_text(kcontext, problem));
-		ret = HTTP_INTERNAL_SERVER_ERROR;
-		goto end;
-	}
+   ap_table_setn(r->subprocess_env, "KRB5CCNAME", ccname);
+   ap_register_cleanup(r->pool, ccname,
+		       krb5_cache_cleanup, ap_null_cleanup);
 
-      	ap_table_setn(r->subprocess_env, "KRB5CCNAME", ccname);
-	ap_register_cleanup(r->pool, ccname,
-			    krb5_cache_cleanup, ap_null_cleanup);
+   *ccache = tmp_ccache;
+   tmp_ccache = NULL;
 
-	*ccache = tmp_ccache;
-	tmp_ccache = NULL;
-
-	ret = OK;
+   ret = OK;
 
 end:
-	if (tmp_ccache)
-	   krb5_cc_destroy(kcontext, tmp_ccache);
+   if (tmp_ccache)
+      krb5_cc_destroy(kcontext, tmp_ccache);
 
-	return ret;
+   return ret;
 }
 
 static int
