@@ -1129,6 +1129,11 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
   accept_sec_token = (cmp_gss_type(&input_token, &spnego_oid) == 0) ?
      			gss_accept_sec_context_spnego : gss_accept_sec_context;
 
+  log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Verifying client data using %s",
+	     (accept_sec_token == gss_accept_sec_context)
+	       ? "KRB5 GSS-API"
+	       : "SPNEGO GSS-API");
+
   major_status = accept_sec_token(&minor_status,
 				  &context,
 				  server_creds,
@@ -1156,6 +1161,9 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
      ap_base64encode(token, output_token.value, output_token.length);
      token[len] = '\0';
      *negotiate_ret_value = token;
+     log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	        "Verification suceeded, GSS-API token of length %d bytes will be sent back",
+		output_token.length);
      gss_release_buffer(&minor_status2, &output_token);
   }
 
