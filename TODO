@@ -1,11 +1,5 @@
-* Save Creds/Tickets
-	Retrieve and store krbtgt and set env variable of file path.
-
 - Cleanup Daemon
 	Maybe write some little cleanup daemon to clean up ticket files.
-
-* Set Path for Storage of Temp Files
-	Storage of ticket files, and maybe others at some point.
 
 - Verify Krb5 Ticket
 	Currently www/hostname.
@@ -19,27 +13,12 @@
 * Settable Location of Keytab/Srvtab
 	Again, in config instead of compiled in.
 
-* Lifetime Settable
-	Set lifetime of tickets in config.
-
-* Default Instance
-	You can make it so that 'by default', a user's daniel/root or 
-	daniel/www instance is auth'd against instead of just daniel.
-
 - Require Instance
 	We'll allow for a 'require instance ......'.
-
-- Any Instance
-	Allow for specification of daniel/root or daniel/admin.
-	If off, only checks against defaultinstance instance.
-	require user daniel/root daniel daniel/admin
 
 - Expire Reauth
 	Set a lifetime on tickets, and after expiration, tries to -force-
 	a reauth (brings up login/password window)
-
-* Forwardable/Renewable Tickets
-	Setting in config.
 
 - Browser Mutual Auth Support
 	Combined with plugins, use auth user already has.

@@ -47,7 +47,6 @@ module AP_MODULE_DECLARE_DATA kerb_auth_module;
 #define MK_TABLE_TYPE table
 #define MK_PSTRDUP ap_pstrdup
 #define MK_PROXY STD_PROXY
-#define MK_RERROR_LEVEL ""
 #define MK_USER r->connection->user
 #define MK_AUTH_TYPE r->connection->ap_auth_type
 #define MK_ARRAY_HEADER array_header
@@ -59,7 +58,6 @@ module AP_MODULE_DECLARE_DATA kerb_auth_module;
 #define MK_TABLE_TYPE apr_table_t
 #define MK_PSTRDUP apr_pstrdup
 #define MK_PROXY PROXYREQ_PROXY
-#define MK_RERROR_LEVEL "0, "
 #define MK_USER r->user
 #define MK_AUTH_TYPE r->ap_auth_type
 #define MK_ARRAY_HEADER apr_array_header_t
@@ -288,7 +286,7 @@ command_rec kerb_auth_cmds[] = {
 		"KrbTmpdir",
 		ap_set_string_slot,
 		(void*)XtOffsetOf(kerb_auth_config, krb_tmp_dir),
-		OR_AUTHCFG,
+		RSRC_CONF & ACCESS_CONF,
 		TAKE1,
 		"Path to store ticket files and such in."
 	},
@@ -406,7 +404,7 @@ static const command_rec kerb_auth_cmds[] = {
 		"KrbTmpdir",
 		ap_set_string_slot,
 		(void*)APR_XtOffsetOf(kerb_auth_config, krb_tmp_dir),
-		OR_AUTHCFG,
+		RSRC_CONF & ACCESS_CONF,
 		"Path to store ticket files and such in."
 	),
 
@@ -422,21 +420,62 @@ static const command_rec kerb_auth_cmds[] = {
  Username/Password Validation
  ***************************************************************************/
 #ifdef KRB5
-int kerb5_password_validate(const char *user, const char *pass) {
+int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
+{
+	kerb_auth_config *conf =
+		(kerb_auth_config *)ap_get_module_config(r->per_dir_config,
+					&kerb_auth_module);
 	int ret;
 	krb5_context kcontext;
 	krb5_principal server, me;
 	krb5_creds my_creds;
 	krb5_timestamp now;
-	krb5_deltat lifetime = 0;
+	krb5_ccache ccache = NULL;
+	krb5_deltat lifetime = 300;	/* 5 minutes */
+	krb5_deltat renewal = 0;
+	krb5_flags options = 0;
 	krb5_data tgtname = {
 		0,
 		KRB5_TGS_NAME_SIZE,
 		KRB5_TGS_NAME
 	};
+	char *c, ccname[MAX_STRING_LEN];
 
 	if (krb5_init_context(&kcontext))
 		return 0;
+
+	if (conf->krb_save_credentials) {
+		lifetime = 1800;	/* 30 minutes */
+
+		if (conf->krb_forwardable) {
+			options |= KDC_OPT_FORWARDABLE;
+		}
+
+		if (conf->krb_renewable) {
+			options |= KDC_OPT_RENEWABLE;
+			renewal = 86400;	/* 24 hours */
+		}
+
+		sprintf(ccname, "FILE:%s/k5cc_ap_%s",
+			conf->krb_tmp_dir ? conf->krb_tmp_dir : "/tmp",
+			MK_USER);
+
+		for (c = ccname + strlen(conf->krb_tmp_dir ? conf->krb_tmp_dir :
+				"/tmp") + 1; *c; c++) {
+			if (*c == '/')
+				*c = '.';
+		}
+
+		ap_table_setn(r->subprocess_env, "KRB5CCNAME", ccname);
+		if (krb5_cc_set_default_name(kcontext, ccname)) {
+			return 0;
+		}
+		unlink(ccname+strlen("FILE:"));
+	}
+
+	if (conf->krb_lifetime) {
+		lifetime = atoi(conf->krb_lifetime);
+	}
 
 	memset((char *)&my_creds, 0, sizeof(my_creds));
 	if(krb5_parse_name(kcontext, user, &me))
@@ -457,10 +496,18 @@ int kerb5_password_validate(const char *user, const char *pass) {
 		return 0;
 	my_creds.times.starttime = 0;
 	my_creds.times.endtime = now + lifetime;
-	my_creds.times.renew_till = 0;
+	my_creds.times.renew_till = now + renewal;
 
-	ret = krb5_get_in_tkt_with_password(kcontext, 0, 0, NULL, 0,
-				pass, NULL, &my_creds, 0);
+	if (conf->krb_save_credentials) {
+		if (krb5_cc_resolve(kcontext, ccname, &ccache))
+			return 0;
+
+		if (krb5_cc_initialize(kcontext, ccache, me))
+			return 0;
+	}
+
+	ret = krb5_get_in_tkt_with_password(kcontext, options, 0, NULL, 0,
+				pass, ccache, &my_creds, 0);
 	if (ret) {
 		return 0;
 	}
@@ -472,16 +519,81 @@ int kerb5_password_validate(const char *user, const char *pass) {
 #endif /* KRB5 */
 
 #ifdef KRB4
-int kerb4_password_validate(const char *user, const char *pass) {
+int kerb4_password_validate(request_rec *r, const char *user, const char *pass)
+{
+	kerb_auth_config *conf =
+		(kerb_auth_config *)ap_get_module_config(r->per_dir_config,
+					&kerb_auth_module);
 	int ret;
-	char realm[REALM_SZ];
+	int lifetime = DEFAULT_TKT_LIFE;
+	char *c, *tfname;
+	char *username = NULL;
+	char *instance = NULL;
+	char *realm = NULL;
 
-	ret = krb_get_lrealm(realm, 1);
-	if (ret != KSUCCESS)
+	username = (char *)ap_pstrdup(r->pool, user);
+	if (!username) {
 		return 0;
+	}
 
-	ret = krb_get_pw_in_tkt((char *)user, "", realm, "krbtgt", realm,
-					DEFAULT_TKT_LIFE, (char *)pass);
+	instance = strchr(username, '.');
+	if (instance) {
+		*instance++ = '\0';
+	}
+	else {
+		instance = "";
+	}
+
+	realm = strchr(username, '@');
+	if (realm) {
+		*realm++ = '\0';
+	}
+	else {
+		realm = "";
+	}
+
+	if (conf->krb_lifetime) {
+		lifetime = atoi(conf->krb_lifetime);
+	}
+
+	if (conf->krb_force_instance) {
+		instance = conf->krb_force_instance;
+	}
+
+	if (conf->krb_save_credentials) {
+		tfname = (char *)malloc(sizeof(char) * MAX_STRING_LEN);
+		sprintf(tfname, "%s/k5cc_ap_%s",
+			conf->krb_tmp_dir ? conf->krb_tmp_dir : "/tmp",
+			MK_USER);
+
+		if (!strcmp(instance, "")) {
+			tfname = strcat(tfname, ".");
+			tfname = strcat(tfname, instance);
+		}
+
+		if (!strcmp(realm, "")) {
+			tfname = strcat(tfname, ".");
+			tfname = strcat(tfname, realm);
+		}
+
+		for (c = tfname + strlen(conf->krb_tmp_dir ? conf->krb_tmp_dir :
+				"/tmp") + 1; *c; c++) {
+			if (*c == '/')
+				*c = '.';
+		}
+
+		krb_set_tkt_string(tfname);
+	}
+
+	if (!strcmp(realm, "")) {
+		realm = (char *)malloc(sizeof(char) * (REALM_SZ + 1));
+		ret = krb_get_lrealm(realm, 1);
+		if (ret != KSUCCESS)
+			return 0;
+	}
+
+	ret = krb_get_pw_in_tkt((char *)user, instance, realm, "krbtgt", realm,
+					lifetime, (char *)pass);
 	switch (ret) {
 		case INTK_OK:
 		case INTK_W_NOTALL:
@@ -501,7 +613,8 @@ int kerb4_password_validate(const char *user, const char *pass) {
 /*************************************************************************** 
  User Authentication
  ***************************************************************************/
-int kerb_authenticate_user(request_rec *r) {
+int kerb_authenticate_user(request_rec *r)
+{
 	const char *name;		/* AuthName specified */
 	const char *type;		/* AuthType specified */
 	int KerberosV5 = 0;		/* Kerberos V5 check enabled */
@@ -564,14 +677,13 @@ int kerb_authenticate_user(request_rec *r) {
 
 	name = ap_auth_name(r);
 	if (!name) {
-		ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, r,
-				MK_RERROR_LEVEL "need AuthName: %s", r->uri);
 		return HTTP_INTERNAL_SERVER_ERROR;
 	}
 
 	if (!auth_line) {
 		MK_TABLE_SET(r->err_headers_out, "WWW-Authenticate",
-			ap_pstrcat(r->pool, "Basic realm=\"", name, "\"", NULL));
+			(char *)ap_pstrcat(r->pool,
+			"Basic realm=\"", name, "\"", NULL));
 		return HTTP_UNAUTHORIZED;
 	}
 
@@ -586,7 +698,7 @@ int kerb_authenticate_user(request_rec *r) {
 #ifdef KRB5
 	if (KerberosV5 && !KerberosV4first && retcode != OK) {
 		MK_AUTH_TYPE = "KerberosV5";
-		if (kerb5_password_validate(MK_USER, sent_pw)) {
+		if (kerb5_password_validate(r, MK_USER, sent_pw)) {
 			retcode = OK;
 		}
 		else {
@@ -598,7 +710,7 @@ int kerb_authenticate_user(request_rec *r) {
 #ifdef KRB4
 	if (KerberosV4 && retcode != OK) {
 		MK_AUTH_TYPE = "KerberosV4";
-		if (kerb4_password_validate(MK_USER, sent_pw)) {
+		if (kerb4_password_validate(r, MK_USER, sent_pw)) {
 			retcode = OK;
 		}
 		else {
@@ -610,7 +722,7 @@ int kerb_authenticate_user(request_rec *r) {
 #if defined(KRB5) && defined(KRB4)
 	if (KerberosV5 && KerberosV4first && retcode != OK) {
 		MK_AUTH_TYPE = "KerberosV5";
-		if (kerb5_password_validate(MK_USER, sent_pw)) {
+		if (kerb5_password_validate(r, MK_USER, sent_pw)) {
 			retcode = OK;
 		}
 		else {
@@ -633,7 +745,8 @@ int kerb_authenticate_user(request_rec *r) {
 /*************************************************************************** 
  Access Verification
  ***************************************************************************/
-int kerb_check_user_access(request_rec *r) {
+int kerb_check_user_access(request_rec *r)
+{
 	register int x;
 	const char *t, *w;
 	const MK_ARRAY_HEADER *reqs_arr = ap_requires(r);

@@ -1,7 +1,10 @@
 dnl ####################
 dnl ## Initialization ##
 dnl ####################
-AC_INIT(README)
+AC_INIT(Apache Kerberos Module,
+        alpha2,
+        modauthkerb-developers@lists.sourceforge.net,
+        mod_auth_kerb)
 
 
 dnl ####################

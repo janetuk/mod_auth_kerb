@@ -1,7 +1,38 @@
+2003-06-02  Daniel Henninger  <jadestorm@users.sourceforge.net>
+
+	* src/mod_auth_kerb.c:
+	Added save_credentials support.
+	Hushed up an warnings at compile time.
+	Added krb4 instance/realm specification support.
+	Added force_instance support.
+	Fixed Kerberos options support.
+	Added tmpdir support.
+	Added lifetime support.
+
+	* TODO:
+	Removed work already completed.
+
+2003-06-01  Daniel Henninger  <jadestorm@users.sourceforge.net>
+
+	* INSTALL:
+	Replaced with standard autoconf INSTALL file.
+
+	* NEWS:
+	Added alpha2 comment.
+
+	* configure.in:
+	Changed AC_INIT to provide more information.
+
 2003-05-29  Daniel Henninger  <jadestorm@users.sourceforge.net>
 
 	* src/mod_auth_kerb.c:
 	Combined current work back into a single file.
+
+	* apache1/*:
+	* apache2/*:
+	* krb4/*:
+	* krb5/*:
+	Removed since they are replaced by src/mod_auth_kerb.c.
 
 2002-09-06  Daniel Henninger  <daniel@ncsu.edu>
 
