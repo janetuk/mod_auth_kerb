@@ -585,93 +585,120 @@ krb5_cache_cleanup(void *data)
 }
 
 static int
-store_krb5_creds(krb5_context kcontext,
-      		 request_rec *r,
-		 kerb_auth_config *conf,
-		 krb5_ccache delegated_cred)
+create_krb5_ccache(krb5_context kcontext,
+      		   request_rec *r,
+		   kerb_auth_config *conf,
+		   krb5_principal princ,
+		   krb5_ccache *ccache)
 {
 	char *c, ccname[MAX_STRING_LEN];
 	krb5_error_code problem;
 	char errstr[1024];
 	int ret;
-	krb5_ccache ccache = NULL;
-	krb5_principal me = NULL;
+	krb5_ccache tmp_ccache = NULL;
 
-	sprintf(ccname, "FILE:%s/k5cc_ap_%s",
+	snprintf(ccname, sizeof(ccname), "FILE:%s/k5cc_ap_%s",
   	        conf->krb_tmp_dir ? conf->krb_tmp_dir : "/tmp",
-	        MK_USER);
+		MK_USER);
 
 	for (c = ccname + strlen(conf->krb_tmp_dir ? conf->krb_tmp_dir :
 	     "/tmp") + 1; *c; c++) {
 		if (*c == '/')
 			*c = '.';
-	  }
+	}
 
-	problem = krb5_cc_set_default_name(kcontext, ccname);
-	if (problem) {
-		snprintf(errstr, sizeof(errstr),
-			   "krb5_cc_set_default_name() failed: %s",
-			   krb5_get_err_text(kcontext, problem));
-		ap_log_reason (errstr, r->uri, r);
-		ret = SERVER_ERROR;
-		goto end;
-	  }
 #if 0
-	  /* XXX Dan: Why is this done? Cleanup? But the file would not be 
-	   * accessible from another processes (CGI) */
-	  unlink(ccname+strlen("FILE:"));
+	/* not sure what's the purpose of this call here */
+	problem = krb5_cc_set_default_name(kcontext, ccname);
+        if (problem) {
+                snprintf(errstr, sizeof(errstr),
+                           "krb5_cc_set_default_name() failed: %s",
+                           krb5_get_err_text(kcontext, problem));
+                ap_log_reason (errstr, r->uri, r);
+                ret = SERVER_ERROR;
+                goto end;
+          }
+
 #endif
 
-	  problem = krb5_cc_resolve(kcontext, ccname, &ccache);
-	  if (problem) {
+#if 0
+	/* XXX Dan: Why is this done? Cleanup? But the file would not be
+         * accessible from another processes (CGI) */
+        unlink(ccname+strlen("FILE:"));
+#endif
+
+	problem = krb5_cc_resolve(kcontext, ccname, &tmp_ccache);
+	if (problem) {
 		snprintf(errstr, sizeof(errstr),
 			 "krb5_cc_resolve() failed: %s",
 			 krb5_get_err_text(kcontext, problem));
 		ap_log_reason (errstr, r->uri, r);
 		ret = SERVER_ERROR;
 		goto end;
-	  }
+	}
 
-	  problem = krb5_cc_get_principal(kcontext, delegated_cred, &me);
-	  if (problem) {
-		  snprintf(errstr, sizeof(errstr),
-			   "krb5_cc_get_principal() failed: %s",
-			   krb5_get_err_text(kcontext, problem));
-		  ap_log_reason (errstr, r->uri, r);
-		  ret = SERVER_ERROR;
-		  goto end;
-	  }
-
-	  problem = krb5_cc_initialize(kcontext, ccache, me);
-	  if (problem) {
-	  	snprintf(errstr, sizeof(errstr),
+	problem = krb5_cc_initialize(kcontext, tmp_ccache, princ);
+	if (problem) {
+		snprintf(errstr, sizeof(errstr),
 		         "krb5_cc_initialize() failed: %s",
 			 krb5_get_err_text(kcontext, problem));
 		ap_log_reason (errstr, r->uri, r);
 		ret = SERVER_ERROR;
 		goto end;
-	  }
+	}
 
-	  problem = krb5_cc_copy_cache(kcontext, delegated_cred, ccache);
-	  if (problem) {
-	     snprintf(errstr, sizeof(errstr),
-		      "krb5_cc_copy_cache failed: %s",
-		      krb5_get_err_text(kcontext, problem));
-	     ap_log_reason (errstr, r->uri, r);
-	     ret = SERVER_ERROR;
-	     goto end;
-	  }
-	  ap_table_setn(r->subprocess_env, "KRB5CCNAME", ccname);
-	  ap_register_cleanup(r->pool, ccname,
-			      krb5_cache_cleanup, ap_null_cleanup);
+      	ap_table_setn(r->subprocess_env, "KRB5CCNAME", ccname);
+	ap_register_cleanup(r->pool, ccname,
+			    krb5_cache_cleanup, ap_null_cleanup);
 
-	  krb5_cc_close(kcontext, ccache);
+	*ccache = tmp_ccache;
+	tmp_ccache = NULL;
 
-	  ret = OK;
+	ret = OK;
 
 end:
+	if (tmp_ccache)
+	   krb5_cc_destroy(kcontext, tmp_ccache);
 
-	  return ret; /* XXX */
+	return ret; /* XXX */
+}
+
+static int
+store_krb5_creds(krb5_context kcontext,
+      		 request_rec *r,
+		 kerb_auth_config *conf,
+		 krb5_ccache delegated_cred)
+{
+   char errstr[1024];
+   krb5_error_code problem;
+   krb5_principal princ;
+   krb5_ccache ccache;
+   int ret;
+
+   problem = krb5_cc_get_principal(kcontext, delegated_cred, &princ);
+   if (problem) {
+      snprintf(errstr, sizeof(errstr), "krb5_cc_get_principal() failed: %s",
+	       krb5_get_err_text(kcontext, problem));
+      return SERVER_ERROR;
+   }
+
+   ret = create_krb5_ccache(kcontext, r, conf, princ, &ccache);
+   if (ret) {
+      krb5_free_principal(kcontext, princ);
+      return ret;
+   }
+
+   problem = krb5_cc_copy_cache(kcontext, delegated_cred, ccache);
+   krb5_free_principal(kcontext, princ);
+   if (problem) {
+      snprintf(errstr, sizeof(errstr), "krb5_cc_copy_cache() failed: %s",
+	       krb5_get_err_text(kcontext, problem));
+      krb5_cc_destroy(kcontext, ccache);
+      return SERVER_ERROR;
+   }
+
+   krb5_cc_close(kcontext, ccache);
+   return OK;
 }
 
 int kerb5_password_validate(request_rec *r, const char *user, const char *pass)
@@ -1089,7 +1116,7 @@ negotiate_authenticate_user(request_rec *r,
 
   gss_release_buffer(&minor_status, &output_token);
 
-#if 0
+#ifdef 0
   /* This should be only done if afs token are requested or gss_save creds is 
    * specified */
   /* gss_export_cred() from the GGF GSS Extensions could be used */
