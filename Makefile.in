@@ -22,7 +22,7 @@ spnegokrb5/libspnegokrb5.a:
 	(cd spnegokrb5 && make)
 
 src/mod_auth_kerb.so: spnegokrb5/libspnegokrb5.a src/mod_auth_kerb.c
-	$(APXS) -c -o $@ $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) src/mod_auth_kerb.c
+	$(APXS) -c $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) src/mod_auth_kerb.c
 
 install:
 	$(APXS) -c -i $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) src/mod_auth_kerb.c
