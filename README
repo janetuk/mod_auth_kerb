@@ -173,7 +173,7 @@ Sample .htaccess
 	AuthName "Kerberos Login"
 	KrbAuthRealms KRB.NCSU.EDU NCSU.EDU
 	KrbMethodK4Passwd off
-	require principal1@KRB.NCSU.EDU principal2@NCSU.EDU
+	require user principal1@KRB.NCSU.EDU principal2@NCSU.EDU
 
 Reminder, you need to set the appropriate AllowOverride directive in your
 server access configuration so that a different AuthType will be allowed.
