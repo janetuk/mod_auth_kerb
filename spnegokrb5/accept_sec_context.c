@@ -244,13 +244,13 @@ OM_uint32 gss_accept_sec_context_spnego
 					    time_rec,
 					    delegated_cred_handle);
       if (GSS_ERROR(major_status)) {
-	 send_reject (minor_status, output_token);
+	 send_reject (&minor_status2, output_token);
 	 return major_status;
       }
       ot = &obuf;
    }
 
-   ret = send_accept (minor_status, output_token, ot);
+   ret = send_accept (&minor_status2, output_token, ot);
    if (ot != NULL)
       gss_release_buffer(&minor_status2, ot);
 
