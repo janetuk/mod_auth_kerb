@@ -29,3 +29,8 @@ clean:
 	(cd spnegokrb5 && make clean)
 	$(RM) *.o *.so *.a *.la *.lo *.slo core
 	$(RM) src/*.{o,so,a,la,lo,slo}
+
+distclean: clean
+	(cd spnegokrb5 && make distclean)
+	$(RM) config.h config.status Makefile configure autom4te.cache config.log
+	

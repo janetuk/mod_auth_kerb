@@ -35,3 +35,6 @@ test:
 	
 clean:
 	$(RM) *.o core libspnegokrb5.a
+
+distclean: clean
+	$(RM) Makefile
