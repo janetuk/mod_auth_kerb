@@ -50,6 +50,46 @@ command_rec kerb_auth_cmds[] = {
 		"Permit Kerberos auth without AuthType requirement."
 	},
 
+#ifdef KRB4
+	{
+		"Krb4Srvtab",
+		ap_set_file_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_4_srvtab),
+		RSRC_CONF & ACCESS_CONF,
+		TAKE1,
+		"Location of Kerberos V4 srvtab file."
+	},
+#endif /* KRB4 */
+
+#ifdef KRB5
+	{
+		"Krb5Keytab",
+		ap_set_file_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_5_keytab),
+		RSRC_CONF & ACCESS_CONF,
+		TAKE1,
+		"Location of Kerberos V5 keytab file."
+	},
+#endif /* KRB5 */
+
+	{
+		"KrbAuthoritative",
+		ap_set_flag_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_authoritative),
+		OR_AUTHCFG,
+		FLAG,
+		"Refuse to pass request down to lower modules."
+	},
+
+	{
+		"KrbDefaultRealm",
+		ap_set_string_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_default_realm),
+		OR_AUTHCFG,
+		TAKE1,
+		"Default realm to authenticate users against."
+	},
+
 	{
 		"KrbFailStatus",
 		kerb_set_fail_slot,
@@ -60,12 +100,70 @@ command_rec kerb_auth_cmds[] = {
 	},
 
 	{
-		"KrbAuthoritative",
+		"KrbForceInstance",
+		ap_set_string_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_force_instance),
+		OR_AUTHCFG,
+		TAKE1,
+		"Force authentication against an instance specified here."
+	},
+
+#ifdef KRB5
+	{
+		"KrbForwardable",
 		ap_set_flag_slot,
-		(void*)XtOffsetOf(kerb_auth_config, krb_authoritative),
+		(void*)XtOffsetOf(kerb_auth_config, krb_forwardable),
 		OR_AUTHCFG,
 		FLAG,
-		"Refuse to pass request down to lower modules."
+		"Credentials retrieved will be flagged as forwardable."
+	},
+#endif /* KRB5 */
+
+	{
+		"KrbLifetime",
+		ap_set_string_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_lifetime),
+		OR_AUTHCFG,
+		TAKE1,
+		"Lifetime of tickets retrieved."
+	},
+
+#ifdef KRB5
+	{
+		"KrbRenewable",
+		ap_set_string_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_renewable),
+		OR_AUTHCFG,
+		TAKE1,
+		"Credentials retrieved will be renewable for this length."
+	},
+#endif /* KRB5 */
+
+	{
+		"KrbSaveCredentials",
+		ap_set_flag_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_save_credentials),
+		OR_AUTHCFG,
+		FLAG,
+		"Save and store credentials/tickets retrieved during auth."
+	},
+
+	{
+		"KrbSaveTickets",
+		ap_set_flag_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_save_credentials),
+		OR_AUTHCFG,
+		FLAG,
+		"Alias for KrbSaveCredentials."
+	},
+
+	{
+		"KrbTmpdir",
+		ap_set_string_slot,
+		(void*)XtOffsetOf(kerb_auth_config, krb_tmp_dir),
+		OR_AUTHCFG,
+		TAKE1,
+		"Path to store ticket files and such in."
 	},
 
 	{ NULL }

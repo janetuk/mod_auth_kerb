@@ -1,3 +1,11 @@
+2002-09-06  Daniel Henninger  <daniel@ncsu.edu>
+
+	* apache1/auth_cmds.c:
+	* apache1/auth_config.h:
+	* apache2/auth_cmds.c:
+	* apache2/auth_config.h:
+	Added all of the options I currently forsee supporting.
+
 2002-09-05  Daniel Henninger  <daniel@ncsu.edu>
 
 	* apache1/module.c:
