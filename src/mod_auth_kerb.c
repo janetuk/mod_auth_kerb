@@ -93,7 +93,7 @@ static const command_rec kerb_auth_cmds[] = {
    command("KrbAuthRealm", ap_set_string_slot, krb_auth_realms,
      ITERATE, "Realms to attempt authentication against (can be multiple)."),
 
-   command("KrbAuthRealm", ap_set_string_slot, krb_auth_realms,
+   command("KrbAuthRealms", ap_set_string_slot, krb_auth_realms,
      ITERATE, "Alias for KrbAuthRealm."),
 
 #if 0
@@ -511,17 +511,21 @@ int authenticate_user_krb5pwd(request_rec *r,
       goto end;
    }
 
+   if (conf->krb_5_keytab)
+      setenv("KRB5_KTNAME", conf->krb_5_keytab, 1);
+
    realms = conf->krb_auth_realms;
    do {
-      if (realms && krb5_set_default_realm(kcontext,
-	          		           ap_getword_white(r->pool, &realms)))
+      if (realms && (code = krb5_set_default_realm(kcontext,
+	          		           ap_getword_white(r->pool, &realms))))
 	 continue;
 
       code = krb5_parse_name(kcontext, r->connection->user, &client);
       if (code)
 	 continue;
 
-      code = krb5_verify_user(kcontext, client, ccache, sent_pw, 1, "khttp");
+      code = krb5_verify_user(kcontext, client, ccache, sent_pw, 1, 
+	    	(conf->service_name) ? conf->service_name : "khttp");
       krb5_free_principal(kcontext, client);
       if (code == 0)
 	 break;
@@ -571,7 +575,7 @@ get_gss_error(pool *p, OM_uint32 error_status, char *prefix)
    char buf[1024];
    size_t len;
 
-   snprintf(buf, sizeof(buf), "%s: ", prefix);
+   snprintf(buf, sizeof(buf), "%s", prefix);
    len = strlen(buf);
    do {
       maj_stat = gss_display_status (&min_stat,
@@ -581,7 +585,7 @@ get_gss_error(pool *p, OM_uint32 error_status, char *prefix)
 				     &msg_ctx,
 				     &status_string);
       if (sizeof(buf) > len + status_string.length + 1) {
-         sprintf(buf+len, "%s:", (char*) status_string.value);
+         sprintf(buf+len, ": %s", (char*) status_string.value);
          len += status_string.length;
       }
       gss_release_buffer(&min_stat, &status_string);
@@ -686,19 +690,10 @@ get_gss_creds(request_rec *r,
       return SERVER_ERROR;
    }
    
-#ifdef KRB5
-   if (conf->krb_5_keytab)
-      setenv("KRB5_KTNAME", conf->krb_5_keytab, 1);
-#endif
-
    major_status = gss_acquire_cred(&minor_status, server_name, GSS_C_INDEFINITE,
 			           GSS_C_NO_OID_SET, GSS_C_ACCEPT,
 				   server_creds, NULL, NULL);
    gss_release_name(&minor_status2, &server_name);
-#ifdef KRB5
-   if (conf->krb_5_keytab)
-      unsetenv("KRB5_KTNAME");
-#endif
    if (GSS_ERROR(major_status)) {
       ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, r,
 	           "%s", get_gss_error(r->pool, minor_status,
@@ -733,6 +728,9 @@ authenticate_user_gss(request_rec *r,
      memset(gss_connection, 0, sizeof(*gss_connection));
      ap_register_cleanup(r->connection->pool, gss_connection, cleanup_gss_connection, ap_null_cleanup);
   }
+
+  if (conf->krb_5_keytab)
+     setenv("KRB5_KTNAME", conf->krb_5_keytab, 1);
 
   if (gss_connection->server_creds == GSS_C_NO_CREDENTIAL) {
      ret = get_gss_creds(r, conf, &gss_connection->server_creds);
