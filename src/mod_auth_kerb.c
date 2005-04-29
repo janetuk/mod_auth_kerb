@@ -1285,6 +1285,7 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
 	        "GSS-API token of length %d bytes will be sent back",
 		output_token.length);
      gss_release_buffer(&minor_status2, &output_token);
+     set_kerb_auth_headers(r, conf, 0, 0, *negotiate_ret_value);
   }
 
   if (GSS_ERROR(major_status)) {
@@ -1326,9 +1327,6 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
 
   if (conf->krb_save_credentials && delegated_cred != GSS_C_NO_CREDENTIAL)
      store_gss_creds(r, conf, (char *)output_token.value, delegated_cred);
-
-  if (*negotiate_ret_value)
-     set_kerb_auth_headers(r, conf, 0, 0, *negotiate_ret_value);
 
   gss_release_buffer(&minor_status, &output_token);
 
