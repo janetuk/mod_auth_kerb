@@ -175,6 +175,12 @@ First make sure your Mozilla distribution contains the Negotiateauth component
 included in versions 1.7beta and later on Unix platforms including Mac OSX,
 maybe 1.8 and later on Windows.)
 
+Next, you have to specify URL's for which it is allowed to use the Negotiate
+authentication method. It's done by setting the
+network.negotiate-auth.trusted-uris preference. In order to set it, just type
+"about:config" in the URL bar and then set the value of
+"network.negotiate-auth.trusted-uris" to "https://secured.webserver.name".
+
 If you want to find out what happens in the Negotiateauth component use
 following environment variables:
   NSPR_LOG_MODULES=negotiateauth:5
@@ -191,7 +197,7 @@ http://www.grolmsnet.de/kerbtut/konqueror.html
 If you want only particular users to be able to access the secured area, you
 can list their principal names in the appropriate Require directive. They must
 be full Kerberos names, including the REALM part. For example:
-  Require kouril@REALM.COM kouril REALM.CZ
+  Require user kouril@REALM.COM
 
 The user's name is put by Apache in the REMOTE_USER environment variable so
 that it could be used by cgi-bin scripts.
