@@ -79,9 +79,20 @@
 
 #define ap_table_setn apr_table_setn
 #define ap_table_add apr_table_add
-
 #else
 #define ap_pstrchr_c strchr
+#endif /* STANDARD20_MODULE_STUFF */
+
+#ifdef _WIN32
+#define vsnprintf _vsnprintf
+#define snprintf _snprintf
+#endif
+
+#ifndef KRB5_LIB_FUNCTION
+#  if defined(_WIN32)
+#    define KRB5_LIB_FUNCTION _stdcall
+#  else
+#    define KRB5_LIB_FUNCTION
 #endif
 
 #ifdef KRB5
@@ -109,11 +120,8 @@
 #include <netdb.h> /* gethostbyname() */
 #endif /* KRB4 */
 
-#ifdef WIN32
-#define vsnprintf _vsnprintf
-#define snprintf _snprintf
-#else
-/* XXX remove dependency on unistd.h ??? */
+#ifndef _WIN32
+/* should be HAVE_UNISTD_H instead */
 #include <unistd.h>
 #endif
 
@@ -223,7 +231,7 @@ static const command_rec kerb_auth_cmds[] = {
    { NULL }
 };
 
-#ifdef WIN32
+#ifdef _WIN32
 int
 mkstemp(char *template)
 {
@@ -263,7 +271,7 @@ mkstemp(char *template)
 #include "mit-internals.h"
 
 /* This is our replacement krb5_rc_store function */
-static krb5_error_code
+static krb5_error_code KRB5_LIB_FUNCTION
 mod_auth_kerb_rc_store(krb5_context context, krb5_rcache rcache,
                        krb5_donot_replay_internal *donot_replay)
 {
@@ -1208,8 +1216,8 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
   int ret;
   gss_name_t client_name = GSS_C_NO_NAME;
   gss_cred_id_t delegated_cred = GSS_C_NO_CREDENTIAL;
-  OM_uint32 
-     (*accept_sec_token)(OM_uint32 *, gss_ctx_id_t *, const gss_cred_id_t,
+  OM_uint32 (KRB5_LIB_FUNCTION *accept_sec_token)
+     			 (OM_uint32 *, gss_ctx_id_t *, const gss_cred_id_t,
 			 const gss_buffer_t, const gss_channel_bindings_t,
 			 gss_name_t *, gss_OID *, gss_buffer_t, OM_uint32 *,
 			 OM_uint32 *, gss_cred_id_t *);

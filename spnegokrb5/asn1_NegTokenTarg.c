@@ -27,7 +27,7 @@ int oldret = ret;
 ret = 0;
 e = encode_octet_string(p, len, (data)->mechListMIC, &l);
 BACK;
-e = der_put_length_and_tag (p, len, ret, CONTEXT, CONS, 3, &l);
+e = der_put_length_and_tag (p, len, ret, KERB_CTXT, CONS, 3, &l);
 BACK;
 ret += oldret;
 }
@@ -37,7 +37,7 @@ int oldret = ret;
 ret = 0;
 e = encode_octet_string(p, len, (data)->responseToken, &l);
 BACK;
-e = der_put_length_and_tag (p, len, ret, CONTEXT, CONS, 2, &l);
+e = der_put_length_and_tag (p, len, ret, KERB_CTXT, CONS, 2, &l);
 BACK;
 ret += oldret;
 }
@@ -47,7 +47,7 @@ int oldret = ret;
 ret = 0;
 e = encode_MechType(p, len, (data)->supportedMech, &l);
 BACK;
-e = der_put_length_and_tag (p, len, ret, CONTEXT, CONS, 1, &l);
+e = der_put_length_and_tag (p, len, ret, KERB_CTXT, CONS, 1, &l);
 BACK;
 ret += oldret;
 }
@@ -57,7 +57,7 @@ int oldret = ret;
 ret = 0;
 e = encode_enumerated(p, len, (data)->negResult, &l);
 BACK;
-e = der_put_length_and_tag (p, len, ret, CONTEXT, CONS, 0, &l);
+e = der_put_length_and_tag (p, len, ret, KERB_CTXT, CONS, 0, &l);
 BACK;
 ret += oldret;
 }
@@ -87,7 +87,7 @@ return ASN1_BAD_FORMAT;
 {
 size_t newlen, oldlen;
 
-e = der_match_tag (p, len, CONTEXT, CONS, 0, &l);
+e = der_match_tag (p, len, KERB_CTXT, CONS, 0, &l);
 if (e)
 (data)->negResult = NULL;
 else {
@@ -115,7 +115,7 @@ len = oldlen - newlen;
 {
 size_t newlen, oldlen;
 
-e = der_match_tag (p, len, CONTEXT, CONS, 1, &l);
+e = der_match_tag (p, len, KERB_CTXT, CONS, 1, &l);
 if (e)
 (data)->supportedMech = NULL;
 else {
@@ -143,7 +143,7 @@ len = oldlen - newlen;
 {
 size_t newlen, oldlen;
 
-e = der_match_tag (p, len, CONTEXT, CONS, 2, &l);
+e = der_match_tag (p, len, KERB_CTXT, CONS, 2, &l);
 if (e)
 (data)->responseToken = NULL;
 else {
@@ -171,7 +171,7 @@ len = oldlen - newlen;
 {
 size_t newlen, oldlen;
 
-e = der_match_tag (p, len, CONTEXT, CONS, 3, &l);
+e = der_match_tag (p, len, KERB_CTXT, CONS, 3, &l);
 if (e)
 (data)->mechListMIC = NULL;
 else {

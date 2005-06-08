@@ -12,7 +12,7 @@ extern "C" {
 #  include <gssapi/gssapi.h>
 #endif
 
-OM_uint32 gss_init_sec_context_spnego(
+OM_uint32 KRB5_LIB_FUNCTION gss_init_sec_context_spnego(
             OM_uint32 *,
             const gss_cred_id_t,
             gss_ctx_id_t *,
@@ -27,7 +27,7 @@ OM_uint32 gss_init_sec_context_spnego(
             OM_uint32 *,
             OM_uint32 *);
 
-OM_uint32 gss_accept_sec_context_spnego
+OM_uint32 KRB5_LIB_FUNCTION gss_accept_sec_context_spnego
            (OM_uint32 *,
             gss_ctx_id_t *,
             const gss_cred_id_t,

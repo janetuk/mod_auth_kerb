@@ -48,7 +48,7 @@ set_context_flags(OM_uint32 req_flags, ContextFlags *flags)
 }
 #endif
 
-OM_uint32 gss_init_sec_context_spnego(
+OM_uint32 KRB5_LIB_FUNCTION gss_init_sec_context_spnego(
 	    OM_uint32 * minor_status,
             const gss_cred_id_t initiator_cred_handle,
             gss_ctx_id_t * context_handle,
@@ -142,7 +142,7 @@ OM_uint32 gss_init_sec_context_spnego(
 	    ret = der_put_length_and_tag(buf + buf_size - len - 1,
 					 buf_size - len,
 					 len,
-					 CONTEXT,
+					 KERB_CTXT,
 					 CONS,
 					 0,
 					 &tmp);

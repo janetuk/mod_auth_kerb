@@ -37,7 +37,7 @@ code_NegTokenArg(OM_uint32 *minor_status,
 	    ret = der_put_length_and_tag(buf + buf_size - buf_len - 1,
 					 buf_size - buf_len,
 					 buf_len,
-					 CONTEXT,
+					 KERB_CTXT,
 					 CONS,
 					 1,
 					 &tmp);
@@ -163,7 +163,7 @@ send_accept (OM_uint32 *minor_status,
     return GSS_S_COMPLETE;
 }
 
-OM_uint32 gss_accept_sec_context_spnego
+OM_uint32 KRB5_LIB_FUNCTION gss_accept_sec_context_spnego
            (OM_uint32 * minor_status,
             gss_ctx_id_t * context_handle,
             const gss_cred_id_t acceptor_cred_handle,
@@ -194,7 +194,7 @@ OM_uint32 gss_accept_sec_context_spnego
    if (ret)
       return ret;
 
-   ret = der_match_tag_and_length(buf, buf_size, CONTEXT, CONS,
+   ret = der_match_tag_and_length(buf, buf_size, KERB_CTXT, CONS,
 	 			  0, &len, &taglen);
    if (ret)
       return ret;
