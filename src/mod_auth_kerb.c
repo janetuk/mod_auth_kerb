@@ -61,9 +61,27 @@
 #include <http_request.h>
 
 #ifdef STANDARD20_MODULE_STUFF
-#include <ap_compat.h>
 #include <apr_strings.h>
 #include <apr_base64.h>
+
+#define ap_null_cleanup NULL
+#define ap_register_cleanup apr_pool_cleanup_register
+
+#define ap_pstrdup apr_pstrdup
+#define ap_pstrcat apr_pstrcat
+#define ap_pcalloc apr_pcalloc
+#define ap_psprintf apr_psprintf
+
+#define ap_base64decode_len apr_base64_decode_len
+#define ap_base64decode apr_base64_decode
+#define ap_base64encode_len apr_base64_encode_len
+#define ap_base64encode apr_base64_encode
+
+#define ap_table_setn apr_table_setn
+#define ap_table_add apr_table_add
+
+#else
+#define ap_pstrchr_c strchr
 #endif
 
 #ifdef KRB5
@@ -147,12 +165,12 @@ set_kerb_auth_headers(request_rec *r, const kerb_auth_config *conf,
                       int use_krb4, int use_krb5pwd, char *negotiate_ret_value);
 
 static const char*
-krb5_save_realms(cmd_parms *cmd, kerb_auth_config *sec, const char *arg);
+krb5_save_realms(cmd_parms *cmd, void *sec, const char *arg);
 
 #ifdef STANDARD20_MODULE_STUFF
 #define command(name, func, var, type, usage)           \
   AP_INIT_ ## type (name, (void*) func,                 \
-        (void*)APR_XtOffsetOf(kerb_auth_config, var),   \
+        (void*)APR_OFFSETOF(kerb_auth_config, var),     \
         OR_AUTHCFG | RSRC_CONF, usage)
 #else
 #define command(name, func, var, type, usage) 		\
@@ -292,14 +310,16 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 }
 
 static const char*
-krb5_save_realms(cmd_parms *cmd, kerb_auth_config *sec, const char *arg)
+krb5_save_realms(cmd_parms *cmd, void *vsec, const char *arg)
 {
+   kerb_auth_config *sec = (kerb_auth_config *) vsec;
    sec->krb_auth_realms= ap_pstrdup(cmd->pool, arg);
    return NULL;
 }
 
-void log_rerror(const char *file, int line, int level, int status,
-                const request_rec *r, const char *fmt, ...)
+static void
+log_rerror(const char *file, int line, int level, int status,
+           const request_rec *r, const char *fmt, ...)
 {
    char errstr[1024];
    va_list ap;
@@ -413,7 +433,7 @@ authenticate_user_krb4pwd(request_rec *r,
    sent_name = ap_getword (r->pool, &sent_pw, ':');
 
    /* do not allow user to override realm setting of server */
-   if (strchr(sent_name, '@')) {
+   if (ap_strchr_c(sent_name, '@')) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	         "specifying realm in user name is prohibited");
       return HTTP_UNAUTHORIZED;
@@ -852,9 +872,10 @@ store_krb5_creds(krb5_context kcontext,
 }
 
 
-int authenticate_user_krb5pwd(request_rec *r,
-	                      kerb_auth_config *conf,
-			      const char *auth_line)
+static int
+authenticate_user_krb5pwd(request_rec *r,
+                          kerb_auth_config *conf,
+                          const char *auth_line)
 {
    const char      *sent_pw = NULL; 
    const char      *sent_name = NULL;
@@ -1399,7 +1420,8 @@ set_kerb_auth_headers(request_rec *r, const kerb_auth_config *conf,
 #endif
 }
 
-int kerb_authenticate_user(request_rec *r)
+static int
+kerb_authenticate_user(request_rec *r)
 {
    kerb_auth_config *conf = 
       (kerb_auth_config *) ap_get_module_config(r->per_dir_config,
@@ -1521,7 +1543,8 @@ kerb_init_handler(apr_pool_t *p, apr_pool_t *plog,
    return OK;
 }
 
-void kerb_register_hooks(apr_pool_t *p)
+static void
+kerb_register_hooks(apr_pool_t *p)
 {
    ap_hook_post_config(kerb_init_handler, NULL, NULL, APR_HOOK_MIDDLE);
    ap_hook_check_user_id(kerb_authenticate_user, NULL, NULL, APR_HOOK_MIDDLE);
