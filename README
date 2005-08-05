@@ -59,9 +59,13 @@ KrbVerifyKDC on | off		(set to on by default)
    keytab to prevent KDC spoofing atacks. It should be used only for testing
    purposes. You have been warned.
 
-KrbServiceName service		(set to HTTP by default)
-   For specification the service name that will be used by Apache for
-   authentication. Corresponding key of this name must be stored in the keytab.
+KrbServiceName server_principal
+   Specifies a principal name to use by Apache when authenticating the clients.
+   By default value of the form
+   	HTTP/<FQDN_of_apache>@<realm>
+   is used. The FQDN part can contain any hostname and can be used to work
+   around problems with misconfigured DNS. A corresponding key of this name
+   must be stored in the keytab.
 
 Krb4Srvtab /path/to/srvtab
    This option takes one argument, specifying the path to the Kerberos V4

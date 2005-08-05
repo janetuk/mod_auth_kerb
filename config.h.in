@@ -14,3 +14,6 @@
 
 /* Define if you want to enable support for Kerberos4 */
 #undef KRB4
+
+/* Define if your GSSAPI library supports handling SPNEGO tokens */
+#undef GSSAPI_SUPPORTS_SPNEGO

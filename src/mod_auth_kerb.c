@@ -51,7 +51,9 @@
 #include <stdarg.h>
 
 #define MODAUTHKERB_VERSION "5.0-rc6"
+
 #define MECH_NEGOTIATE "Negotiate"
+#define SERVICE_NAME "HTTP"
 
 #include <httpd.h>
 #include <http_config.h>
@@ -88,13 +90,6 @@
 #define snprintf _snprintf
 #endif
 
-#ifndef KRB5_LIB_FUNCTION
-#  if defined(_WIN32)
-#    define KRB5_LIB_FUNCTION _stdcall
-#  else
-#    define KRB5_LIB_FUNCTION
-#endif
-
 #ifdef KRB5
 #include <krb5.h>
 #ifdef HEIMDAL
@@ -107,7 +102,9 @@
 #  define GSS_C_NT_HOSTBASED_SERVICE gss_nt_service_name
 #  define krb5_get_err_text(context,code) error_message(code)
 #endif
-#include "spnegokrb5.h"
+#ifndef GSSAPI_SUPPORTS_SPNEGO
+#  include "spnegokrb5.h"
+#endif
 #endif /* KRB5 */
 
 #ifdef KRB4
@@ -154,7 +151,7 @@ typedef struct {
 	char *krb_auth_realms;
 	int krb_save_credentials;
 	int krb_verify_kdc;
-	char *krb_service_name;
+	const char *krb_service_name;
 	int krb_authoritative;
 	int krb_delegate_basic;
 #ifdef KRB5
@@ -201,7 +198,7 @@ static const command_rec kerb_auth_cmds[] = {
      FLAG, "Verify tickets against keytab to prevent KDC spoofing attacks."),
 
    command("KrbServiceName", ap_set_string_slot, krb_service_name,
-     TAKE1, "Service name to be used by Apache for authentication."),
+     TAKE1, "Full or partial service name to be used by Apache for authentication."),
 
    command("KrbAuthoritative", ap_set_flag_slot, krb_authoritative,
      FLAG, "Set to 'off' to allow access control to be passed along to lower modules iff the UserID is not known to this module."),
@@ -304,7 +301,7 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 
 	rec = (kerb_auth_config *) ap_pcalloc(p, sizeof(kerb_auth_config));
         ((kerb_auth_config *)rec)->krb_verify_kdc = 1;
-	((kerb_auth_config *)rec)->krb_service_name = "HTTP";
+	((kerb_auth_config *)rec)->krb_service_name = NULL;
 	((kerb_auth_config *)rec)->krb_authoritative = 1;
 	((kerb_auth_config *)rec)->krb_delegate_basic = 0;
 #ifdef KRB5
@@ -481,6 +478,7 @@ authenticate_user_krb4pwd(request_rec *r,
 	 realm = lrealm;
       }
 
+      /* XXX conf->krb_service_name */
       ret = verify_krb4_user(r, (char *)sent_name, 
 	                     (sent_instance) ? sent_instance : "",
 	    		     (char *)realm, (char *)sent_pw,
@@ -655,11 +653,10 @@ end:
 /* Inspired by krb5_verify_user from Heimdal */
 static krb5_error_code
 verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
-      		 const char *password, const char *service, krb5_keytab keytab,
-		 int krb_verify_kdc, krb5_ccache *ccache)
+      		 const char *password, krb5_principal server,
+		 krb5_keytab keytab, int krb_verify_kdc, krb5_ccache *ccache)
 {
    krb5_creds creds;
-   krb5_principal server = NULL;
    krb5_error_code ret;
    krb5_ccache ret_ccache = NULL;
    char *name = NULL;
@@ -686,16 +683,6 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
 		 krb5_get_err_text(context, ret));
       goto end;
    }
-
-   ret = krb5_sname_to_principal(context, ap_get_server_name(r), service, 
-	 			 KRB5_NT_SRV_HST, &server);
-   if (ret) {
-      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	         "krb5_sname_to_principal() failed: %s",
-		 krb5_get_err_text(context, ret));
-      goto end;
-   }
-   /* XXX log_debug: lookig for <server_princ> in keytab */
 
    /* XXX
    {
@@ -744,8 +731,6 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
 
 end:
    krb5_free_cred_contents(context, &creds);
-   if (server)
-      krb5_free_principal(context, server);
    if (ret_ccache)
       krb5_cc_destroy(context, ret_ccache);
 
@@ -892,6 +877,7 @@ authenticate_user_krb5pwd(request_rec *r,
    krb5_context    kcontext = NULL;
    krb5_error_code code;
    krb5_principal  client = NULL;
+   krb5_principal  server = NULL;
    krb5_ccache     ccache = NULL;
    krb5_keytab     keytab = NULL;
    int             ret;
@@ -918,6 +904,34 @@ authenticate_user_krb5pwd(request_rec *r,
 
    if (conf->krb_5_keytab)
       krb5_kt_resolve(kcontext, conf->krb_5_keytab, &keytab);
+
+   if (conf->krb_service_name && strchr(conf->krb_service_name, '/') != NULL)
+      ret = krb5_parse_name (kcontext, conf->krb_service_name, &server);
+   else
+      ret = krb5_sname_to_principal(kcontext, ap_get_server_name(r),
+	    			    (conf->krb_service_name) ? conf->krb_service_name : SERVICE_NAME,
+				    KRB5_NT_SRV_HST, &server);
+
+   if (ret) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "Error parsing server name (%s): %s",
+		 (conf->krb_service_name) ? conf->krb_service_name : SERVICE_NAME,
+		 krb5_get_err_text(kcontext, ret));
+      ret = HTTP_UNAUTHORIZED;
+      goto end;
+   }
+
+   code = krb5_unparse_name(kcontext, server, &name);
+   if (code) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	         "krb5_unparse_name() failed: %s",
+		 krb5_get_err_text(kcontext, code));
+      ret = HTTP_UNAUTHORIZED;
+      goto end;
+   }
+   log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Using %s as server principal for password verification", name);
+   free(name);
+   name = NULL;
 
    p = strchr(sent_name, '@');
    if (p) {
@@ -950,9 +964,8 @@ authenticate_user_krb5pwd(request_rec *r,
 	 continue;
       }
 
-      code = verify_krb5_user(r, kcontext, client, sent_pw, 
-	    		      conf->krb_service_name, 
-	    		      keytab, conf->krb_verify_kdc, &ccache);
+      code = verify_krb5_user(r, kcontext, client, sent_pw,
+	    		      server, keytab, conf->krb_verify_kdc, &ccache);
       if (!conf->krb_authoritative && code) {
 	 /* if we're not authoritative, we allow authentication to pass on
 	  * to another modules if (and only if) the user is not known to us */
@@ -1000,6 +1013,8 @@ end:
 	      ret, (MK_USER)?MK_USER:"(NULL)", (MK_AUTH_TYPE)?MK_AUTH_TYPE:"(NULL)");
    if (client)
       krb5_free_principal(kcontext, client);
+   if (server)
+      krb5_free_principal(kcontext, server);
    if (ccache)
       krb5_cc_destroy(kcontext, ccache);
    if (keytab)
@@ -1111,15 +1126,21 @@ get_gss_creds(request_rec *r,
    OM_uint32 major_status, minor_status, minor_status2;
    gss_name_t server_name = GSS_C_NO_NAME;
    char buf[1024];
+   int have_server_princ;
 
-   snprintf(buf, sizeof(buf), "%s@%s", conf->krb_service_name,
-	    ap_get_server_name(r));
+   have_server_princ = conf->krb_service_name && strchr(conf->krb_service_name, '/') != NULL;
+   if (have_server_princ)
+      strncpy(buf, conf->krb_service_name, sizeof(buf));
+   else
+      snprintf(buf, sizeof(buf), "%s@%s",
+	       (conf->krb_service_name) ? conf->krb_service_name : SERVICE_NAME,
+	       ap_get_server_name(r));
 
    token.value = buf;
    token.length = strlen(buf) + 1;
 
    major_status = gss_import_name(&minor_status, &token,
-	 			  GSS_C_NT_HOSTBASED_SERVICE,
+	 			  (have_server_princ) ? GSS_KRB5_NT_PRINCIPAL_NAME : GSS_C_NT_HOSTBASED_SERVICE,
 				  &server_name);
    memset(&token, 0, sizeof(token));
    if (GSS_ERROR(major_status)) {
@@ -1272,10 +1293,13 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
   }
   input_token.length = ap_base64decode(input_token.value, auth_param);
 
+#ifdef GSSAPI_SUPPORTS_SPNEGO
+  accept_sec_token = gss_accept_sec_context;
+#else
   accept_sec_token = (cmp_gss_type(&input_token, &spnego_oid) == 0) ?
      			gss_accept_sec_context_spnego : gss_accept_sec_context;
+#endif
 
-  /* pridat: Read client Negotiate data of length XXX, prefix YYY */
   log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Verifying client data using %s",
 	     (accept_sec_token == gss_accept_sec_context)
 	       ? "KRB5 GSS-API"

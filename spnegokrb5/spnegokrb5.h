@@ -12,6 +12,14 @@ extern "C" {
 #  include <gssapi/gssapi.h>
 #endif
 
+#ifndef KRB5_LIB_FUNCTION
+#  if defined(_WIN32)
+#    define KRB5_LIB_FUNCTION _stdcall
+#  else
+#    define KRB5_LIB_FUNCTION
+#  endif
+#endif
+
 OM_uint32 KRB5_LIB_FUNCTION gss_init_sec_context_spnego(
             OM_uint32 *,
             const gss_cred_id_t,

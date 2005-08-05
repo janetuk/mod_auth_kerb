@@ -126,13 +126,32 @@ if test "x$with_krb5" != "xno" ; then
      AC_TRY_COMPILE([#include <krb5.h>],
 		    [ char *tmp = heimdal_version; ],
 		    [ AC_MSG_RESULT(yes)
-		      AC_DEFINE(HEIMDAL) ]
-		      have_heimdal=yes,
+		      AC_DEFINE(HEIMDAL)
+		      have_heimdal=yes ],
 		    [ AC_MSG_RESULT(no) ])
      CFLAGS="$ac_save_CFLAGS"
 
-     if test -n "$have_heimdal"; then
-	SPNEGO_SRCS="\
+# If SPNEGO is supported by the gssapi libraries, we shouln't build our support.
+# SPNEGO is supported as of Heimdal 0.7, don't know about MIT.
+     gssapi_supports_spnego=""
+     AC_MSG_CHECKING(whether the GSSAPI libraries support SPNEGO)
+     # Invent some better test
+     if test "$have_heimdal" = yes; then
+	ac_save_CFLAGS="$CFLAGS"
+	CFLAGS="$KRB5_CPPFLAGS"
+	AC_TRY_COMPILE([#include <gssapi.h>],
+		       [ gss_OID oid = GSS_SPNEGO_MECHANISM; ],
+		       [ AC_MSG_RESULT(yes)
+		         AC_DEFINE(GSSAPI_SUPPORTS_SPNEGO)
+			 gssapi_supports_spnego=yes ],
+		       [ AC_MSG_RESULT(no) ])
+	CFLAGS="$ac_save_CFLAGS"
+     else
+     	AC_MSG_RESULT(no)
+     fi
+
+     if test -z "gssapi_supports_spnego"; then
+     	if test -n "$have_heimdal"; then SPNEGO_SRCS="\
 		spnegokrb5/asn1_MechType.c	   \
 		spnegokrb5/asn1_MechTypeList.c	   \
 		spnegokrb5/asn1_ContextFlags.c     \
@@ -143,8 +162,7 @@ if test "x$with_krb5" != "xno" ; then
 		spnegokrb5/encapsulate.c           \
 		spnegokrb5/decapsulate.c           \
 		spnegokrb5/external.c"
-     else
-	SPNEGO_SRCS="\
+     	else SPNEGO_SRCS="\
 		spnegokrb5/asn1_MechType.c         \
         	spnegokrb5/asn1_MechTypeList.c     \
         	spnegokrb5/asn1_ContextFlags.c     \
@@ -161,6 +179,7 @@ if test "x$with_krb5" != "xno" ; then
         	spnegokrb5/encapsulate.c           \
         	spnegokrb5/decapsulate.c           \
         	spnegokrb5/external.c"
+     	fi
      fi
   fi
 fi
