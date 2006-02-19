@@ -154,7 +154,9 @@ typedef struct {
 	const char *krb_service_name;
 	int krb_authoritative;
 	int krb_delegate_basic;
+#ifdef 0
 	int krb_ssl_preauthentication;
+#endif
 #ifdef KRB5
 	char *krb_5_keytab;
 	int krb_method_gssapi;
@@ -207,8 +209,10 @@ static const command_rec kerb_auth_cmds[] = {
    command("KrbDelegateBasic", ap_set_flag_slot, krb_delegate_basic,
      FLAG, "Always offer Basic authentication regardless of KrbMethodK5Pass and pass on authentication to lower modules if Basic headers arrive."),
 
+#ifdef 0
    command("KrbEnableSSLPreauthentication", ap_set_flag_slot, krb_ssl_preauthentication,
      FLAG, "Don't do Kerberos authentication if the user is already authenticated using SSL and her client certificate."),
+#endif
 
 #ifdef KRB5
    command("Krb5Keytab", ap_set_file_slot, krb_5_keytab,
@@ -308,7 +312,9 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 	((kerb_auth_config *)rec)->krb_service_name = NULL;
 	((kerb_auth_config *)rec)->krb_authoritative = 1;
 	((kerb_auth_config *)rec)->krb_delegate_basic = 0;
+#if 0
 	((kerb_auth_config *)rec)->krb_ssl_preauthentication = 0;
+#endif
 #ifdef KRB5
 	((kerb_auth_config *)rec)->krb_method_k5pass = 1;
 	((kerb_auth_config *)rec)->krb_method_gssapi = 1;
@@ -1487,6 +1493,7 @@ kerb_authenticate_user(request_rec *r)
    else
       return DECLINED;
 
+#if 0
    if (conf->krb_ssl_preauthentication) {
       const char *ssl_client_verify = ssl_var_lookup(r->pool, r->server,
 	    	r->connection, r, "SSL_CLIENT_VERIFY");
@@ -1494,6 +1501,7 @@ kerb_authenticate_user(request_rec *r)
       if (ssl_client_verify && strcmp(ssl_client_verify, "SUCCESS") == 0)
 	 return OK;
    }
+#endif
 
    /* get what the user sent us in the HTTP header */
    auth_line = MK_TABLE_GET(r->headers_in, (r->proxyreq == PROXYREQ_PROXY)
