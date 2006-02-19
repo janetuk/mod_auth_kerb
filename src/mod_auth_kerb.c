@@ -11,7 +11,7 @@
  */
 
 /*
- * Copyright (c) 2004-2005 Masarykova universita
+ * Copyright (c) 2004-2006 Masarykova universita
  * (Masaryk University, Brno, Czech Republic)
  * All rights reserved.
  *
