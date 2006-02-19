@@ -150,7 +150,7 @@ if test "x$with_krb5" != "xno" ; then
      	AC_MSG_RESULT(no)
      fi
 
-     if test -z "gssapi_supports_spnego"; then
+     if test -z "$gssapi_supports_spnego"; then
      	if test -n "$have_heimdal"; then SPNEGO_SRCS="\
 		spnegokrb5/asn1_MechType.c	   \
 		spnegokrb5/asn1_MechTypeList.c	   \
