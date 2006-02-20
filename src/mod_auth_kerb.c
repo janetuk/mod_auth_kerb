@@ -154,7 +154,7 @@ typedef struct {
 	const char *krb_service_name;
 	int krb_authoritative;
 	int krb_delegate_basic;
-#ifdef 0
+#if 0
 	int krb_ssl_preauthentication;
 #endif
 #ifdef KRB5
@@ -209,7 +209,7 @@ static const command_rec kerb_auth_cmds[] = {
    command("KrbDelegateBasic", ap_set_flag_slot, krb_delegate_basic,
      FLAG, "Always offer Basic authentication regardless of KrbMethodK5Pass and pass on authentication to lower modules if Basic headers arrive."),
 
-#ifdef 0
+#if 0
    command("KrbEnableSSLPreauthentication", ap_set_flag_slot, krb_ssl_preauthentication,
      FLAG, "Don't do Kerberos authentication if the user is already authenticated using SSL and her client certificate."),
 #endif
