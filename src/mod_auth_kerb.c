@@ -1139,6 +1139,13 @@ get_gss_creds(request_rec *r,
    char buf[1024];
    int have_server_princ;
 
+#ifndef HEIMDAL
+   /* Suppress the MIT replay cache.  Requires MIT Kerberos 1.4.0 or later.
+      1.3.x are covered by the hack overiding the replay calls */
+   if (getenv("KRB5RCACHETYPE") == NULL)
+      putenv("KRB5RCACHETYPE=none");
+#endif
+
    have_server_princ = conf->krb_service_name && strchr(conf->krb_service_name, '/') != NULL;
    if (have_server_princ)
       strncpy(buf, conf->krb_service_name, sizeof(buf));
@@ -1199,11 +1206,15 @@ get_gss_creds(request_rec *r,
    {
       krb5_gss_cred_id_t gss_creds = (krb5_gss_cred_id_t) *server_creds;
 
-      if (gss_creds && gss_creds->rcache && gss_creds->rcache->ops &&
-	  gss_creds->rcache->ops->type &&  
-	  memcmp(gss_creds->rcache->ops->type, "dfl", 3) == 0)
+      /* First we try to verify we are linked with 1.3.x to prevent from
+         crashing when linked with 1.4.x */
+      if (gss_creds && (gss_creds->usage == GSS_C_ACCEPT)) {
+	 if (gss_creds->rcache && gss_creds->rcache->ops &&
+	     gss_creds->rcache->ops->type &&  
+	     memcmp(gss_creds->rcache->ops->type, "dfl", 3) == 0)
           /* Override the rcache operations */
 	 gss_creds->rcache->ops = &mod_auth_kerb_rc_ops;
+      }
    }
 #endif
    
