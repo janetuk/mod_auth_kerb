@@ -98,8 +98,10 @@ void   free_ContextFlags  (ContextFlags *);
 size_t length_ContextFlags(const ContextFlags *);
 int    copy_ContextFlags  (const ContextFlags *, ContextFlags *);
 unsigned ContextFlags2int(ContextFlags);
-ContextFlags int2ContextFlags(unsigned);
+ContextFlags int2ContextFlags(unsigned); 
+/* XXX causes problem on some platforms
 extern struct units ContextFlags_units[];
+*/
 
 /*
 NegTokenInit ::= SEQUENCE {
