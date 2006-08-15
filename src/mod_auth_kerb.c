@@ -1372,7 +1372,7 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
   if (GSS_ERROR(major_status)) {
     log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	       "%s", get_gss_error(r->pool, major_status, minor_status,
-		                   "gss_export_name() failed"));
+		                   "gss_display_name() failed"));
     ret = HTTP_INTERNAL_SERVER_ERROR;
     goto end;
   }
