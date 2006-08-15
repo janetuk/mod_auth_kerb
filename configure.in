@@ -281,7 +281,10 @@ AC_ARG_WITH(apache,
 
 AC_PATH_PROG([APXS], [apxs], [], [$with_apache/bin:$with_apache/sbin:$PATH])
 if test -z "$APXS"; then
-   AC_MSG_ERROR([failed to find apache apxs executable])
+   AC_PATH_PROG([APXS], [apxs2], [], [$with_apache/bin:$with_apache/sbin:$PATH])
+   if test -z "$APXS"; then
+      AC_MSG_ERROR([failed to find apache apxs executable])
+   fi
 fi
 AC_SUBST(APXS)
 
