@@ -1139,12 +1139,6 @@ get_gss_creds(request_rec *r,
    char buf[1024];
    int have_server_princ;
 
-#ifndef HEIMDAL
-   /* Suppress the MIT replay cache.  Requires MIT Kerberos 1.4.0 or later.
-      1.3.x are covered by the hack overiding the replay calls */
-   if (getenv("KRB5RCACHETYPE") == NULL)
-      putenv("KRB5RCACHETYPE=none");
-#endif
 
    have_server_princ = conf->krb_service_name && strchr(conf->krb_service_name, '/') != NULL;
    if (have_server_princ)
@@ -1571,9 +1565,20 @@ kerb_authenticate_user(request_rec *r)
  Module Setup/Configuration
  ***************************************************************************/
 #ifndef STANDARD20_MODULE_STUFF
+static void
+kerb_module_init(server_rec *dummy, pool *p)
+{
+#ifndef HEIMDAL
+   /* Suppress the MIT replay cache.  Requires MIT Kerberos 1.4.0 or later.
+      1.3.x are covered by the hack overiding the replay calls */
+   if (getenv("KRB5RCACHETYPE") == NULL)
+      putenv(strdup("KRB5RCACHETYPE=none"));
+#endif
+}
+
 module MODULE_VAR_EXPORT auth_kerb_module = {
 	STANDARD_MODULE_STUFF,
-	NULL,				/*      module initializer            */
+	kerb_module_init,		/*      module initializer            */
 	kerb_dir_create_config,		/*      per-directory config creator  */
 	NULL,				/*      per-directory config merger   */
 	NULL,				/*      per-server    config creator  */
@@ -1604,6 +1609,13 @@ kerb_init_handler(apr_pool_t *p, apr_pool_t *plog,
       		  apr_pool_t *ptemp, server_rec *s)
 {
    ap_add_version_component(p, "mod_auth_kerb/" MODAUTHKERB_VERSION);
+#ifndef HEIMDAL
+   /* Suppress the MIT replay cache.  Requires MIT Kerberos 1.4.0 or later.
+      1.3.x are covered by the hack overiding the replay calls */
+   if (getenv("KRB5RCACHETYPE") == NULL)
+      putenv(strdup("KRB5RCACHETYPE=none"));
+#endif
+   
    return OK;
 }
 
