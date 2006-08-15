@@ -37,7 +37,7 @@
 RCSID("$Id$");
 #endif
 
-OM_uint32
+static OM_uint32
 gssapi_verify_mech_header(u_char **str,
 			  size_t total_len,
 			  const gss_OID mech)

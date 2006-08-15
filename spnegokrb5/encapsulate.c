@@ -33,7 +33,7 @@
 
 #include "spnegokrb5_locl.h"
 
-void
+static void
 gssapi_encap_length (size_t data_len,
 		     size_t *len,
 		     size_t *total_len,
@@ -48,7 +48,7 @@ gssapi_encap_length (size_t data_len,
     *total_len = 1 + len_len + *len;
 }
 
-u_char *
+static u_char *
 gssapi_mech_make_header (u_char *p,
 			 size_t len,
 			 const gss_OID mech)
