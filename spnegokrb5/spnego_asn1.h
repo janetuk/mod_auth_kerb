@@ -4,6 +4,7 @@
 #ifndef __spnego_asn1_h__
 #define __spnego_asn1_h__
 
+#include <parse_units.h>
 #include <stddef.h>
 #include <time.h>
 
@@ -99,9 +100,7 @@ size_t length_ContextFlags(const ContextFlags *);
 int    copy_ContextFlags  (const ContextFlags *, ContextFlags *);
 unsigned ContextFlags2int(ContextFlags);
 ContextFlags int2ContextFlags(unsigned); 
-/* XXX causes problem on some platforms
 extern struct units ContextFlags_units[];
-*/
 
 /*
 NegTokenInit ::= SEQUENCE {
