@@ -65,22 +65,8 @@
 #ifdef STANDARD20_MODULE_STUFF
 #include <apr_strings.h>
 #include <apr_base64.h>
-
-#define ap_null_cleanup NULL
-#define ap_register_cleanup apr_pool_cleanup_register
-
-#define ap_pstrdup apr_pstrdup
-#define ap_pstrcat apr_pstrcat
-#define ap_pcalloc apr_pcalloc
-#define ap_psprintf apr_psprintf
-
-#define ap_base64decode_len apr_base64_decode_len
-#define ap_base64decode apr_base64_decode
-#define ap_base64encode_len apr_base64_encode_len
-#define ap_base64encode apr_base64_encode
-
-#define ap_table_setn apr_table_setn
-#define ap_table_add apr_table_add
+#include <apr_compat.h>
+#include <apu_compat.h>
 #else
 #define ap_pstrchr_c strchr
 #endif /* STANDARD20_MODULE_STUFF */
