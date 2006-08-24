@@ -1546,6 +1546,26 @@ kerb_authenticate_user(request_rec *r)
    return ret;
 }
 
+int
+have_rcache_type(const char *type)
+{
+   krb5_error_code ret;
+   krb5_rcache id;
+   int found;
+
+   memset(&id, 0, sizeof(id));
+
+   ret = krb5_init_context(&context);
+   if (ret)
+      return 0;
+
+   ret = krb5_rc_resolve_type(context, id, type);
+   found = (ret == 0);
+
+   krb5_free_context(context);
+
+   return found;
+}
 
 /*************************************************************************** 
  Module Setup/Configuration
@@ -1557,7 +1577,7 @@ kerb_module_init(server_rec *dummy, pool *p)
 #ifndef HEIMDAL
    /* Suppress the MIT replay cache.  Requires MIT Kerberos 1.4.0 or later.
       1.3.x are covered by the hack overiding the replay calls */
-   if (getenv("KRB5RCACHETYPE") == NULL)
+   if (getenv("KRB5RCACHETYPE") == NULL && have_rcache_type("none"))
       putenv(strdup("KRB5RCACHETYPE=none"));
 #endif
 }
@@ -1598,7 +1618,7 @@ kerb_init_handler(apr_pool_t *p, apr_pool_t *plog,
 #ifndef HEIMDAL
    /* Suppress the MIT replay cache.  Requires MIT Kerberos 1.4.0 or later.
       1.3.x are covered by the hack overiding the replay calls */
-   if (getenv("KRB5RCACHETYPE") == NULL)
+   if (getenv("KRB5RCACHETYPE") == NULL && have_rcache_type("none"))
       putenv(strdup("KRB5RCACHETYPE=none"));
 #endif
    
