@@ -1550,6 +1550,7 @@ int
 have_rcache_type(const char *type)
 {
    krb5_error_code ret;
+   krb5_context context;
    krb5_rcache id;
    int found;
 
