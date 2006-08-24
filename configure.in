@@ -132,23 +132,59 @@ if test "x$with_krb5" != "xno" ; then
      CFLAGS="$ac_save_CFLAGS"
 
 # If SPNEGO is supported by the gssapi libraries, we shouln't build our support.
-# SPNEGO is supported as of Heimdal 0.7, don't know about MIT.
+# SPNEGO is supported as of Heimdal 0.7, and MIT 1.5.
      gssapi_supports_spnego=""
      AC_MSG_CHECKING(whether the GSSAPI libraries support SPNEGO)
-     # Invent some better test
-     if test "$have_heimdal" = yes; then
-	ac_save_CFLAGS="$CFLAGS"
-	CFLAGS="$KRB5_CPPFLAGS"
-	AC_TRY_COMPILE([#include <gssapi.h>],
-		       [ gss_OID oid = GSS_SPNEGO_MECHANISM; ],
-		       [ AC_MSG_RESULT(yes)
-		         AC_DEFINE(GSSAPI_SUPPORTS_SPNEGO)
-			 gssapi_supports_spnego=yes ],
-		       [ AC_MSG_RESULT(no) ])
-	CFLAGS="$ac_save_CFLAGS"
-     else
-     	AC_MSG_RESULT(no)
-     fi
+
+     ac_save_CFLAGS="$CFLAGS"
+     CFLAGS="$KRB5_CPPFLAGS"
+     ac_save_LDFLAGS="$LDFLAGS"
+     LDFLAGS=$KRB5_LDFLAGS
+
+     AC_TRY_RUN([
+#include <string.h>
+#include <krb5.h>
+#ifdef HEIMDAL
+#include <gssapi.h>
+#else
+#include <gssapi/gssapi.h>
+#endif
+int main(int argc, char** argv)
+{
+       OM_uint32 major_status, minor_status;
+       gss_OID_set mech_set;
+       gss_OID_desc spnego_oid_desc = {6, (void *)"\x2b\x06\x01\x05\x05\x02"};
+       int SPNEGO = 0;
+                                                                               
+       major_status = gss_indicate_mechs(&minor_status, &mech_set);
+       if (GSS_ERROR(major_status))
+               return 1;
+       else {
+               unsigned int i;
+               for (i=0; i < mech_set->count && !SPNEGO; i++) {
+                       gss_OID tmp_oid = &mech_set->elements[i];
+                      if (tmp_oid->length == spnego_oid_desc.length &&
+                           !memcmp(tmp_oid->elements, spnego_oid_desc.elements, 
+                                   tmp_oid->length)) {
+                               SPNEGO = 1;
+                               break;
+                       }
+               }
+               gss_release_oid_set(&minor_status, &mech_set);
+               return (!SPNEGO);
+       }
+}],
+                [ if test $? -eq 0; then 
+                     AC_MSG_RESULT(yes)
+                     AC_DEFINE(GSSAPI_SUPPORTS_SPNEGO)
+                     gssapi_supports_spnego=yes 
+                  else
+                     AC_MSG_RESULT(no)
+                  fi],
+                [AC_MSG_RESULT(no)])
+
+     CFLAGS="$ac_save_CFLAGS"
+     LDFLAGS="$ac_save_LDFLAGS"
 
      if test -z "$gssapi_supports_spnego"; then
      	if test -n "$have_heimdal"; then SPNEGO_SRCS="\
