@@ -209,7 +209,7 @@ OM_uint32 KRB5_LIB_FUNCTION gss_accept_sec_context_spnego
       return send_reject (minor_status, output_token);
 
    for (i = 0; !found && i < init_token.mechTypes->len; ++i) {
-      char mechbuf[17];
+      unsigned char mechbuf[17];
       size_t mech_len;
 
       ret = der_put_oid (mechbuf + sizeof(mechbuf) - 1,
