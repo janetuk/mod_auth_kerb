@@ -65,10 +65,19 @@
 #ifdef STANDARD20_MODULE_STUFF
 #include <apr_strings.h>
 #include <apr_base64.h>
-#include <apr_compat.h>
-#include <apu_compat.h>
 #else
-#define ap_pstrchr_c strchr
+#define apr_pstrdup		ap_pstrdup
+#define apr_psprintf		ap_psprintf
+#define apr_pstrcat		ap_pstrcat
+#define apr_pcalloc		ap_pcalloc
+#define apr_table_setn		ap_table_setn
+#define apr_table_add		ap_table_add
+#define apr_base64_decode_len	ap_base64decode_len
+#define apr_base64_decode	ap_base64decode
+#define apr_base64_encode_len	ap_base64encode_len
+#define apr_base64_encode	ap_base64encode
+#define apr_pool_cleanup_null	ap_null_cleanup
+#define apr_pool_cleanup_register	ap_register_cleanup
 #endif /* STANDARD20_MODULE_STUFF */
 
 #ifdef _WIN32
@@ -293,7 +302,7 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 {
 	kerb_auth_config *rec;
 
-	rec = (kerb_auth_config *) ap_pcalloc(p, sizeof(kerb_auth_config));
+	rec = (kerb_auth_config *) apr_pcalloc(p, sizeof(kerb_auth_config));
         ((kerb_auth_config *)rec)->krb_verify_kdc = 1;
 	((kerb_auth_config *)rec)->krb_service_name = NULL;
 	((kerb_auth_config *)rec)->krb_authoritative = 1;
@@ -315,7 +324,7 @@ static const char*
 krb5_save_realms(cmd_parms *cmd, void *vsec, const char *arg)
 {
    kerb_auth_config *sec = (kerb_auth_config *) vsec;
-   sec->krb_auth_realms= ap_pstrdup(cmd->pool, arg);
+   sec->krb_auth_realms= apr_pstrdup(cmd->pool, arg);
    return NULL;
 }
 
@@ -774,7 +783,7 @@ create_krb5_ccache(krb5_context kcontext,
    int ret;
    krb5_ccache tmp_ccache = NULL;
 
-   ccname = ap_psprintf(r->pool, "FILE:%s/krb5cc_apache_XXXXXX", P_tmpdir);
+   ccname = apr_psprintf(r->pool, "FILE:%s/krb5cc_apache_XXXXXX", P_tmpdir);
    fd = mkstemp(ccname + strlen("FILE:"));
    if (fd < 0) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
@@ -803,9 +812,9 @@ create_krb5_ccache(krb5_context kcontext,
       goto end;
    }
 
-   ap_table_setn(r->subprocess_env, "KRB5CCNAME", ccname);
-   ap_register_cleanup(r->pool, ccname,
-		       krb5_cache_cleanup, ap_null_cleanup);
+   apr_table_setn(r->subprocess_env, "KRB5CCNAME", ccname);
+   apr_pool_cleanup_register(r->pool, ccname, krb5_cache_cleanup,
+	 		     apr_pool_cleanup_null);
 
    *ccache = tmp_ccache;
    tmp_ccache = NULL;
@@ -946,7 +955,7 @@ authenticate_user_krb5pwd(request_rec *r,
    do {
       name = (char *) sent_name;
       if (realms && (realm = ap_getword_white(r->pool, &realms)))
-	 name = ap_psprintf(r->pool, "%s@%s", sent_name, realm);
+	 name = apr_psprintf(r->pool, "%s@%s", sent_name, realm);
 
       if (client) {
 	 krb5_free_principal(kcontext, client);
@@ -995,7 +1004,7 @@ authenticate_user_krb5pwd(request_rec *r,
       ret = HTTP_UNAUTHORIZED;
       goto end;
    }
-   MK_USER = ap_pstrdup (r->pool, name);
+   MK_USER = apr_pstrdup (r->pool, name);
    MK_AUTH_TYPE = "Basic";
    free(name);
 
@@ -1033,7 +1042,7 @@ get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
    gss_buffer_desc status_string;
    char *err_msg;
 
-   err_msg = ap_pstrdup(p, prefix);
+   err_msg = apr_pstrdup(p, prefix);
    do {
       maj_stat = gss_display_status (&min_stat,
 	                             err_maj,
@@ -1043,7 +1052,7 @@ get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 				     &status_string);
       if (GSS_ERROR(maj_stat))
 	 break;
-      err_msg = ap_pstrcat(p, err_msg, ": ", (char*) status_string.value, NULL);
+      err_msg = apr_pstrcat(p, err_msg, ": ", (char*) status_string.value, NULL);
       gss_release_buffer(&min_stat, &status_string);
       
       maj_stat = gss_display_status (&min_stat,
@@ -1053,7 +1062,7 @@ get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 				     &msg_ctx,
 				     &status_string);
       if (!GSS_ERROR(maj_stat)) {
-	 err_msg = ap_pstrcat(p, err_msg,
+	 err_msg = apr_pstrcat(p, err_msg,
 	                      " (", (char*) status_string.value, ")", NULL);
 	 gss_release_buffer(&min_stat, &status_string);
       }
@@ -1285,15 +1294,15 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
      goto end;
   }
 
-  input_token.length = ap_base64decode_len(auth_param) + 1;
-  input_token.value = ap_pcalloc(r->connection->pool, input_token.length);
+  input_token.length = apr_base64_decode_len(auth_param) + 1;
+  input_token.value = apr_pcalloc(r->connection->pool, input_token.length);
   if (input_token.value == NULL) {
      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	   	"ap_pcalloc() failed (not enough memory)");
      ret = HTTP_INTERNAL_SERVER_ERROR;
      goto end;
   }
-  input_token.length = ap_base64decode(input_token.value, auth_param);
+  input_token.length = apr_base64_decode(input_token.value, auth_param);
 
 #ifdef GSSAPI_SUPPORTS_SPNEGO
   accept_sec_token = gss_accept_sec_context;
@@ -1324,8 +1333,8 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
      char *token = NULL;
      size_t len;
      
-     len = ap_base64encode_len(output_token.length) + 1;
-     token = ap_pcalloc(r->connection->pool, len + 1);
+     len = apr_base64_encode_len(output_token.length) + 1;
+     token = apr_pcalloc(r->connection->pool, len + 1);
      if (token == NULL) {
 	log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	           "ap_pcalloc() failed (not enough memory)");
@@ -1333,7 +1342,7 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
 	gss_release_buffer(&minor_status2, &output_token);
 	goto end;
      }
-     ap_base64encode(token, output_token.value, output_token.length);
+     apr_base64_encode(token, output_token.value, output_token.length);
      token[len] = '\0';
      *negotiate_ret_value = token;
      log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
@@ -1378,7 +1387,7 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
   }
 
   MK_AUTH_TYPE = MECH_NEGOTIATE;
-  MK_USER = ap_pstrdup(r->pool, output_token.value);
+  MK_USER = apr_pstrdup(r->pool, output_token.value);
 
   if (conf->krb_save_credentials && delegated_cred != GSS_C_NO_CREDENTIAL)
      store_gss_creds(r, conf, (char *)output_token.value, delegated_cred);
@@ -1436,12 +1445,12 @@ set_kerb_auth_headers(request_rec *r, const kerb_auth_config *conf,
 #ifdef KRB5
    if (negotiate_ret_value != NULL && conf->krb_method_gssapi) {
       negoauth_param = (*negotiate_ret_value == '\0') ? MECH_NEGOTIATE :
-	          ap_pstrcat(r->pool, MECH_NEGOTIATE " ", negotiate_ret_value, NULL);
-      ap_table_add(r->err_headers_out, header_name, negoauth_param);
+	          apr_pstrcat(r->pool, MECH_NEGOTIATE " ", negotiate_ret_value, NULL);
+      apr_table_add(r->err_headers_out, header_name, negoauth_param);
    }
    if ((use_krb5pwd && conf->krb_method_k5pass) || conf->krb_delegate_basic) {
-      ap_table_add(r->err_headers_out, header_name,
-		   ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
+      apr_table_add(r->err_headers_out, header_name,
+		   apr_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
       set_basic = 1;
    }
 #endif
@@ -1560,7 +1569,7 @@ have_rcache_type(const char *type)
    if (ret)
       return 0;
 
-   ret = krb5_rc_resolve_type(context, id, type);
+   ret = krb5_rc_resolve_type(context, &id, type);
    found = (ret == 0);
 
    krb5_free_context(context);
