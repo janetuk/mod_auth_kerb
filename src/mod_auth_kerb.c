@@ -95,6 +95,7 @@
 #  include <gssapi/gssapi_krb5.h>
 #  define GSS_C_NT_USER_NAME gss_nt_user_name
 #  define GSS_C_NT_HOSTBASED_SERVICE gss_nt_service_name
+#  define GSS_KRB5_NT_PRINCIPAL_NAME gss_nt_krb5_name
 #  define krb5_get_err_text(context,code) error_message(code)
 #endif
 #ifndef GSSAPI_SUPPORTS_SPNEGO
