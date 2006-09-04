@@ -353,8 +353,8 @@ log_rerror(const char *file, int line, int level, int status,
  Username/Password Validation for Krb4
  ***************************************************************************/
 static int
-verify_krb4_user(request_rec *r, char *name, char *instance, char *realm,
-      		 char *password, char *linstance, char *srvtab, int krb_verify_kdc)
+verify_krb4_user(request_rec *r, const char *name, const char *instance,
+                 const char *realm, const char *password, const char *linstance, const char *srvtab, int krb_verify_kdc)
 {
    int ret;
    char *phost;
@@ -402,7 +402,7 @@ verify_krb4_user(request_rec *r, char *name, char *instance, char *realm,
       return ret;
    }
 
-   ret = krb_rd_req(&ticket, linstance, phost, addr, &authdata, srvtab);
+   ret = krb_rd_req(&ticket, (char *)linstance, phost, addr, &authdata, (char *)srvtab);
    if (ret) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	         "Cannot verify krb4 ticket: krb_rd_req() failed: %s",
@@ -444,13 +444,6 @@ authenticate_user_krb4pwd(request_rec *r,
    sent_pw = ap_pbase64decode(r->pool, auth_line);
    sent_name = ap_getword (r->pool, &sent_pw, ':');
 
-   /* do not allow user to override realm setting of server */
-   if (ap_strchr_c(sent_name, '@')) {
-      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	         "specifying realm in user name is prohibited");
-      return HTTP_UNAUTHORIZED;
-   }
-
    sent_instance = strchr(sent_name, '.');
    if (sent_instance)
       *sent_instance++ = '\0'; 
@@ -464,10 +457,10 @@ authenticate_user_krb4pwd(request_rec *r,
       return HTTP_INTERNAL_SERVER_ERROR;
    }
 
-   tkt_file_p = ap_pstrdup(r->pool, tkt_file);
-   ap_register_cleanup(r->pool, tkt_file_p,
-	               krb4_cache_cleanup, ap_null_cleanup);
-
+   tkt_file_p = apr_pstrdup(r->pool, tkt_file);
+   apr_pool_cleanup_register(r->pool, tkt_file_p, krb4_cache_cleanup,
+	                     apr_pool_cleanup_null);
+   
    krb_set_tkt_string(tkt_file);
 
    all_principals_unkown = 1;
@@ -510,14 +503,14 @@ authenticate_user_krb4pwd(request_rec *r,
       goto end;
    }
 
-   user = ap_pstrdup(r->pool, sent_name);
+   user = apr_pstrdup(r->pool, sent_name);
    if (sent_instance)
-      user = ap_pstrcat(r->pool, user, ".", sent_instance, NULL);
-   user = ap_pstrcat(r->pool, user, "@", realm, NULL);
+      user = apr_pstrcat(r->pool, user, ".", sent_instance, NULL);
+   user = apr_pstrcat(r->pool, user, "@", realm, NULL);
 
    MK_USER = user;
    MK_AUTH_TYPE = "Basic";
-   ap_table_setn(r->subprocess_env, "KRBTKFILE", tkt_file_p);
+   apr_table_setn(r->subprocess_env, "KRBTKFILE", tkt_file_p);
 
    if (!conf->krb_save_credentials)
       krb4_cache_cleanup(tkt_file);
@@ -1459,8 +1452,8 @@ set_kerb_auth_headers(request_rec *r, const kerb_auth_config *conf,
 #ifdef KRB4
    if (!set_basic && 
        ((use_krb4 && conf->krb_method_k4pass) || conf->krb_delegate_basic))
-      ap_table_add(r->err_headers_out, header_name,
-		  ap_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
+      apr_table_add(r->err_headers_out, header_name,
+		  apr_pstrcat(r->pool, "Basic realm=\"", auth_name, "\"", NULL));
 #endif
 }
 
