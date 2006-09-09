@@ -1554,18 +1554,18 @@ have_rcache_type(const char *type)
 {
    krb5_error_code ret;
    krb5_context context;
-   krb5_rcache id;
+   krb5_rcache id = NULL;
    int found;
-
-   memset(&id, 0, sizeof(id));
 
    ret = krb5_init_context(&context);
    if (ret)
       return 0;
 
-   ret = krb5_rc_resolve_type(context, &id, type);
+   ret = krb5_rc_resolve_full(context, &id, "none:");
    found = (ret == 0);
 
+   if (ret == 0)
+      krb5_rc_destroy(context, id);
    krb5_free_context(context);
 
    return found;
