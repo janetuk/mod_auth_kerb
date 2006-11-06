@@ -1,7 +1,7 @@
 # Process this file with autoconf to produce a configure script.
 AC_REVISION($Revision$)
 AC_PREREQ(2.57)
-AC_INIT(mod_auth_kerb, 5.1, modauthkerb-developers@lists.sourceforge.net)
+AC_INIT(mod_auth_kerb, 5.2, modauthkerb-developers@lists.sourceforge.net)
 AC_CONFIG_SRCDIR([src/mod_auth_kerb.c])
 AC_CONFIG_HEADER([config.h])
 
