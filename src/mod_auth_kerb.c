@@ -118,6 +118,14 @@
 #include <unistd.h>
 #endif
 
+#ifndef KRB5_LIB_FUNCTION
+#  if defined(_WIN32)
+#    define KRB5_LIB_FUNCTION _stdcall
+#  else
+#    define KRB5_LIB_FUNCTION
+#  endif
+#endif
+
 #ifdef STANDARD20_MODULE_STUFF
 module AP_MODULE_DECLARE_DATA auth_kerb_module;
 #else
