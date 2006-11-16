@@ -1044,6 +1044,10 @@ get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
    gss_buffer_desc status_string;
    char *err_msg;
 
+   log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	      "GSS-API major_status:%8.8x, minor_status:%8.8x",
+	      err_maj, err_min);
+
    err_msg = apr_pstrdup(p, prefix);
    do {
       maj_stat = gss_display_status (&min_stat,
@@ -1052,11 +1056,16 @@ get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 				     GSS_C_NO_OID,
 				     &msg_ctx,
 				     &status_string);
-      if (GSS_ERROR(maj_stat))
-	 break;
-      err_msg = apr_pstrcat(p, err_msg, ": ", (char*) status_string.value, NULL);
-      gss_release_buffer(&min_stat, &status_string);
-      
+      if (!GSS_ERROR(maj_stat)) {
+         err_msg = apr_pstrcat(p, err_msg, ": ",
+	                       (char*) status_string.value, NULL);
+	 gss_release_buffer(&min_stat, &status_string);
+      }
+   } while (!GSS_ERROR(maj_stat) && msg_ctx != 0);
+
+   msg_ctx = 0;
+   err_msg = apr_pstrcat(p, err_msg, " (", NULL);
+   do {
       maj_stat = gss_display_status (&min_stat,
 	                             err_min,
 				     GSS_C_MECH_CODE,
@@ -1064,11 +1073,12 @@ get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 				     &msg_ctx,
 				     &status_string);
       if (!GSS_ERROR(maj_stat)) {
-	 err_msg = apr_pstrcat(p, err_msg,
-	                      " (", (char*) status_string.value, ")", NULL);
+	 err_msg = apr_pstrcat(p, err_msg, ", ",
+	                       (char *) status_string.value, NULL);
 	 gss_release_buffer(&min_stat, &status_string);
       }
    } while (!GSS_ERROR(maj_stat) && msg_ctx != 0);
+   err_msg = apr_pstrcat(p, err_msg, ")", NULL);
 
    return err_msg;
 }
