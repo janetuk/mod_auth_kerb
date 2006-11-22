@@ -1268,6 +1268,7 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
   gss_OID_desc spnego_oid;
   gss_ctx_id_t context = GSS_C_NO_CONTEXT;
   gss_cred_id_t server_creds = GSS_C_NO_CREDENTIAL;
+  OM_uint32 ret_flags = 0;
 
   *negotiate_ret_value = "\0";
 
@@ -1336,11 +1337,12 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
 				  &client_name,
 				  NULL,
 				  &output_token,
-				  NULL,
+				  &ret_flags,
 				  NULL,
 				  &delegated_cred);
   log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
-	     "Verification returned code %d", major_status);
+	     "Client %s us their credential",
+	     (ret_flags & GSS_C_DELEG_FLAG) ? "sent" : "didn't send");
   if (output_token.length) {
      char *token = NULL;
      size_t len;
