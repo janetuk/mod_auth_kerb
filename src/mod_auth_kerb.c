@@ -1037,7 +1037,7 @@ end:
  ********************************************************************/
 
 static const char *
-get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
+get_gss_error(request_rec *r, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 {
    OM_uint32 maj_stat, min_stat; 
    OM_uint32 msg_ctx = 0;
@@ -1048,7 +1048,7 @@ get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 	      "GSS-API major_status:%8.8x, minor_status:%8.8x",
 	      err_maj, err_min);
 
-   err_msg = apr_pstrdup(p, prefix);
+   err_msg = apr_pstrdup(r->pool, prefix);
    do {
       maj_stat = gss_display_status (&min_stat,
 	                             err_maj,
@@ -1057,14 +1057,14 @@ get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 				     &msg_ctx,
 				     &status_string);
       if (!GSS_ERROR(maj_stat)) {
-         err_msg = apr_pstrcat(p, err_msg, ": ",
+         err_msg = apr_pstrcat(r->pool, err_msg, ": ",
 	                       (char*) status_string.value, NULL);
 	 gss_release_buffer(&min_stat, &status_string);
       }
    } while (!GSS_ERROR(maj_stat) && msg_ctx != 0);
 
    msg_ctx = 0;
-   err_msg = apr_pstrcat(p, err_msg, " (", NULL);
+   err_msg = apr_pstrcat(r->pool, err_msg, " (", NULL);
    do {
       maj_stat = gss_display_status (&min_stat,
 	                             err_min,
@@ -1073,12 +1073,12 @@ get_gss_error(MK_POOL *p, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 				     &msg_ctx,
 				     &status_string);
       if (!GSS_ERROR(maj_stat)) {
-	 err_msg = apr_pstrcat(p, err_msg, ", ",
+	 err_msg = apr_pstrcat(r->pool, err_msg, ", ",
 	                       (char *) status_string.value, NULL);
 	 gss_release_buffer(&min_stat, &status_string);
       }
    } while (!GSS_ERROR(maj_stat) && msg_ctx != 0);
-   err_msg = apr_pstrcat(p, err_msg, ")", NULL);
+   err_msg = apr_pstrcat(r->pool, err_msg, ")", NULL);
 
    return err_msg;
 }
@@ -1118,7 +1118,7 @@ store_gss_creds(request_rec *r, kerb_auth_config *conf, char *princ_name,
    if (GSS_ERROR(maj_stat)) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	 "Cannot store delegated credential (%s)", 
-	 get_gss_error(r->pool, maj_stat, min_stat, "gss_krb5_copy_ccache"));
+	 get_gss_error(r, maj_stat, min_stat, "gss_krb5_copy_ccache"));
       goto end;
    }
 
@@ -1164,7 +1164,7 @@ get_gss_creds(request_rec *r,
    memset(&token, 0, sizeof(token));
    if (GSS_ERROR(major_status)) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	         "%s", get_gss_error(r->pool, major_status, minor_status,
+	         "%s", get_gss_error(r, major_status, minor_status,
 		 "gss_import_name() failed"));
       return HTTP_INTERNAL_SERVER_ERROR;
    }
@@ -1174,7 +1174,7 @@ get_gss_creds(request_rec *r,
       /* Perhaps we could just ignore this error but it's safer to give up now,
          I think */
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	         "%s", get_gss_error(r->pool, major_status, minor_status,
+	         "%s", get_gss_error(r, major_status, minor_status,
 		                     "gss_display_name() failed"));
       return HTTP_INTERNAL_SERVER_ERROR;
    }
@@ -1189,7 +1189,7 @@ get_gss_creds(request_rec *r,
    gss_release_name(&minor_status2, &server_name);
    if (GSS_ERROR(major_status)) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	         "%s", get_gss_error(r->pool, major_status, minor_status,
+	         "%s", get_gss_error(r, major_status, minor_status,
 		 		     "gss_acquire_cred() failed"));
       return HTTP_INTERNAL_SERVER_ERROR;
    }
@@ -1370,7 +1370,7 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
 	          "Warning: received token seems to be NTLM, which isn't supported by the Kerberos module. Check your IE configuration.");
 
      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	        "%s", get_gss_error(r->pool, major_status, minor_status,
+	        "%s", get_gss_error(r, major_status, minor_status,
 		                    "gss_accept_sec_context() failed"));
      /* Don't offer the Negotiate method again if call to GSS layer failed */
      *negotiate_ret_value = NULL;
@@ -1392,7 +1392,7 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
   gss_release_name(&minor_status, &client_name); 
   if (GSS_ERROR(major_status)) {
     log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-	       "%s", get_gss_error(r->pool, major_status, minor_status,
+	       "%s", get_gss_error(r, major_status, minor_status,
 		                   "gss_display_name() failed"));
     ret = HTTP_INTERNAL_SERVER_ERROR;
     goto end;
