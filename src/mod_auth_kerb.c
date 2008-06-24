@@ -50,7 +50,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-#define MODAUTHKERB_VERSION "5.2"
+#define MODAUTHKERB_VERSION "5.3"
 
 #define MECH_NEGOTIATE "Negotiate"
 #define SERVICE_NAME "HTTP"

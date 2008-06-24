@@ -151,7 +151,7 @@ der_get_oid (const unsigned char *p, size_t len,
     if (len < 1)
 	return ASN1_OVERRUN;
 
-    data->components = malloc(len * sizeof(*data->components));
+    data->components = malloc((len + 1) * sizeof(*data->components));
     if (data->components == NULL && len != 0)
 	return ENOMEM;
     data->components[0] = (*p) / 40;
