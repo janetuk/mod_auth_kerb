@@ -450,7 +450,7 @@ authenticate_user_krb4pwd(request_rec *r,
    int all_principals_unkown;
 
    sent_pw = ap_pbase64decode(r->pool, auth_line);
-   sent_name = ap_getword (r->pool, &sent_pw, ':');
+   sent_name = ap_getword_nulls_nc (r->pool, (char **) &sent_pw, ':');
 
    sent_instance = strchr(sent_name, '.');
    if (sent_instance)
@@ -901,7 +901,7 @@ authenticate_user_krb5pwd(request_rec *r,
    }
 
    sent_pw = ap_pbase64decode(r->pool, auth_line);
-   sent_name = ap_getword (r->pool, &sent_pw, ':');
+   sent_name = ap_getword_nulls_nc (r->pool, (char **) &sent_pw, ':');
 
    if (sent_pw == NULL || *sent_pw == '\0') {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
