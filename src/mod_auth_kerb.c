@@ -165,6 +165,7 @@ typedef struct {
 	char *krb_5_keytab;
 	int krb_method_gssapi;
 	int krb_method_k5pass;
+	int krb5_do_auth_to_local;
 #endif
 #ifdef KRB4
 	char *krb_4_srvtab;
@@ -227,6 +228,9 @@ static const command_rec kerb_auth_cmds[] = {
 
    command("KrbMethodK5Passwd", ap_set_flag_slot, krb_method_k5pass,
      FLAG, "Enable Kerberos V5 password authentication."),
+
+   command("Krb5TrimRealm", ap_set_flag_slot, krb5_do_auth_to_local,
+     FLAG, "Set to 'on' to have Kerberos do auth_to_local mapping of principal names to system user names."),
 #endif 
 
 #ifdef KRB4
@@ -303,6 +307,10 @@ const krb5_rc_ops_internal mod_auth_kerb_rc_ops = {
 };
 #endif
 
+/*************************************************************************** 
+ Macro To Control krb5_aname_to_localname buffer size
+ ***************************************************************************/
+#define AN_TO_LN_BUFFSIZE_MAX 1024
 
 /*************************************************************************** 
  Auth Configuration Initialization
@@ -320,6 +328,7 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 	((kerb_auth_config *)rec)->krb_ssl_preauthentication = 0;
 #endif
 #ifdef KRB5
+  ((kerb_auth_config *)rec)->krb5_do_auth_to_local = 0;
 	((kerb_auth_config *)rec)->krb_method_k5pass = 1;
 	((kerb_auth_config *)rec)->krb_method_gssapi = 1;
 #endif
@@ -1012,7 +1021,10 @@ authenticate_user_krb5pwd(request_rec *r,
 
    if (conf->krb_save_credentials)
       store_krb5_creds(kcontext, r, conf, ccache);
-
+  
+   if (conf->krb5_do_auth_to_local) {
+     krb5_aname_to_localname(kcontext, client, AN_TO_LN_BUFFSIZE_MAX, MK_USER);
+   }
    ret = OK;
 
 end:
