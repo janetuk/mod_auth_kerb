@@ -229,7 +229,7 @@ static const command_rec kerb_auth_cmds[] = {
    command("KrbMethodK5Passwd", ap_set_flag_slot, krb_method_k5pass,
      FLAG, "Enable Kerberos V5 password authentication."),
 
-   command("Krb5TrimRealm", ap_set_flag_slot, krb5_do_auth_to_local,
+   command("KrbLocalUserMapping", ap_set_flag_slot, krb5_do_auth_to_local,
      FLAG, "Set to 'on' to have Kerberos do auth_to_local mapping of principal names to system user names."),
 #endif 
 
@@ -901,6 +901,7 @@ authenticate_user_krb5pwd(request_rec *r,
    char            *name = NULL;
    int             all_principals_unkown;
    char            *p = NULL;
+   char            *MK_USER_LNAME=NULL;
 
    code = krb5_init_context(&kcontext);
    if (code) {
@@ -1023,7 +1024,12 @@ authenticate_user_krb5pwd(request_rec *r,
       store_krb5_creds(kcontext, r, conf, ccache);
   
    if (conf->krb5_do_auth_to_local) {
-     krb5_aname_to_localname(kcontext, client, AN_TO_LN_BUFFSIZE_MAX, MK_USER);
+    MK_USER_LNAME = malloc(strlen(MK_USER)+1);
+    krb5_aname_to_localname(kcontext, client, strlen(MK_USER), MK_USER_LNAME);
+    log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	      "kerb_authenticate_a_name_to_local_name %s -> %s",
+	      (MK_USER)?MK_USER:"(NULL)", (MK_USER_LNAME)?MK_USER_LNAME:"(NULL)");
+	  MK_USER = MK_USER_LNAME;
    }
    ret = OK;
 
