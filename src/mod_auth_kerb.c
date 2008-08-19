@@ -308,11 +308,6 @@ const krb5_rc_ops_internal mod_auth_kerb_rc_ops = {
 #endif
 
 /*************************************************************************** 
- Macro To Control krb5_aname_to_localname buffer size
- ***************************************************************************/
-#define AN_TO_LN_BUFFSIZE_MAX 1024
-
-/*************************************************************************** 
  Auth Configuration Initialization
  ***************************************************************************/
 static void *kerb_dir_create_config(MK_POOL *p, char *d)
@@ -901,7 +896,6 @@ authenticate_user_krb5pwd(request_rec *r,
    char            *name = NULL;
    int             all_principals_unkown;
    char            *p = NULL;
-   char            *MK_USER_LNAME=NULL;
 
    code = krb5_init_context(&kcontext);
    if (code) {
@@ -1022,15 +1016,7 @@ authenticate_user_krb5pwd(request_rec *r,
 
    if (conf->krb_save_credentials)
       store_krb5_creds(kcontext, r, conf, ccache);
-  
-   if (conf->krb5_do_auth_to_local) {
-    MK_USER_LNAME = malloc(strlen(MK_USER)+1);
-    krb5_aname_to_localname(kcontext, client, strlen(MK_USER), MK_USER_LNAME);
-    log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
-	      "kerb_authenticate_a_name_to_local_name %s -> %s",
-	      (MK_USER)?MK_USER:"(NULL)", (MK_USER_LNAME)?MK_USER_LNAME:"(NULL)");
-	  MK_USER = MK_USER_LNAME;
-   }
+
    ret = OK;
 
 end:
@@ -1423,7 +1409,7 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
 
   if (conf->krb_save_credentials && delegated_cred != GSS_C_NO_CREDENTIAL)
      store_gss_creds(r, conf, (char *)output_token.value, delegated_cred);
-
+  
   gss_release_buffer(&minor_status, &output_token);
 
   ret = OK;
@@ -1446,6 +1432,66 @@ end:
 
   return ret;
 }
+
+static int
+do_krb5_an_to_ln(request_rec *r) {
+  krb5_error_code code;
+  int ret = HTTP_INTERNAL_SERVER_ERROR;
+  char *MK_USER_LNAME = NULL;
+  krb5_context    kcontext = NULL;
+  krb5_principal client = NULL;
+  
+  code = krb5_init_context(&kcontext);
+   if (code) {
+      log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+    		 "Cannot initialize Kerberos5 context (%d)", code);
+      goto end;
+   }
+  
+  code = krb5_parse_name(kcontext, MK_USER, &client);
+      if (code) {
+	 log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	            "krb5_parse_name() failed: %s",
+		    krb5_get_err_text(kcontext, code));
+	   goto end;
+  }
+  MK_USER_LNAME = apr_pcalloc(r->pool, strlen(MK_USER)+1);
+  if (MK_USER_LNAME == NULL) {
+     log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	   	"ap_pcalloc() failed (not enough memory)");
+     goto end;
+  }
+    code = krb5_aname_to_localname(kcontext, client, strlen(MK_USER), MK_USER_LNAME);
+    if (code) {
+		  if (code != KRB5_LNAME_NOTRANS) {
+      			log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+				   "krb5_aname_to_localname() failed: %s",
+	         		   krb5_get_err_text(kcontext, code));
+
+		  }
+		  else {
+      			log_rerror(APLOG_MARK, APLOG_NOTICE, 0, r,
+				   "krb5_aname_to_localname() found no "
+				   "mapping for principal %s",
+				   MK_USER);
+		  }
+	  }
+    else {
+    log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+	      "kerb_authenticate_a_name_to_local_name %s -> %s",
+	      (MK_USER)?MK_USER:"(NULL)", (MK_USER_LNAME)?MK_USER_LNAME:"(NULL)");
+	  MK_USER = apr_pstrdup(r->pool, MK_USER_LNAME);
+	  ret = OK;
+	  }
+	end:
+	  if (client)
+	     krb5_free_principal(kcontext, client);
+	  if (kcontext)
+	     krb5_free_context(kcontext);
+	  return ret;
+}
+
+
 #endif /* KRB5 */
 
 static int
@@ -1570,6 +1616,8 @@ kerb_authenticate_user(request_rec *r)
 	      strcasecmp(auth_type, "Basic") == 0) {
        ret = authenticate_user_krb5pwd(r, conf, auth_line);
    }
+   if (ret == OK && conf->krb5_do_auth_to_local)
+    ret = do_krb5_an_to_ln(r);
 #endif
 
 #ifdef KRB4
