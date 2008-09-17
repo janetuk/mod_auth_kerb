@@ -66,6 +66,8 @@ KrbServiceName server_principal
    is used. The FQDN part can contain any hostname and can be used to work
    around problems with misconfigured DNS. A corresponding key of this name
    must be stored in the keytab.
+   If this option is set to 'Any', then any prinicpal from the keytab which
+   matches the client's request may be used.
 
 Krb4Srvtab /path/to/srvtab
    This option takes one argument, specifying the path to the Kerberos V4

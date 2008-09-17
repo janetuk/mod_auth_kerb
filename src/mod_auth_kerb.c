@@ -897,6 +897,10 @@ authenticate_user_krb5pwd(request_rec *r,
    int             all_principals_unkown;
    char            *p = NULL;
 
+   //temporary fix for KrbServiceName Any
+   if (conf->krb_service_name && strcmp(conf->krb_service_name,"Any") == 0)
+      snprintf(conf->krb_service_name, 5,"%s","HTTP");
+
    code = krb5_init_context(&kcontext);
    if (code) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
@@ -1154,6 +1158,10 @@ get_gss_creds(request_rec *r,
    have_server_princ = conf->krb_service_name && strchr(conf->krb_service_name, '/') != NULL;
    if (have_server_princ)
       strncpy(buf, conf->krb_service_name, sizeof(buf));
+   else if (conf->krb_service_name && strcmp(conf->krb_service_name,"Any") == 0) {      
+      *server_creds = GSS_C_NO_CREDENTIAL;
+      return 0;
+   }
    else
       snprintf(buf, sizeof(buf), "%s@%s",
 	       (conf->krb_service_name) ? conf->krb_service_name : SERVICE_NAME,
