@@ -897,9 +897,9 @@ authenticate_user_krb5pwd(request_rec *r,
    int             all_principals_unkown;
    char            *p = NULL;
 
-   //temporary fix for KrbServiceName Any
+   //temporary fix for KrbServiceName Any, use default SERVICE_NAME
    if (conf->krb_service_name && strcmp(conf->krb_service_name,"Any") == 0)
-      snprintf(conf->krb_service_name, 5,"%s","HTTP");
+      snprintf(conf->krb_service_name, 5,"%s",SERVICE_NAME);
 
    code = krb5_init_context(&kcontext);
    if (code) {
