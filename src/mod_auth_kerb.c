@@ -568,7 +568,12 @@ verify_krb5_init_creds(request_rec *r, krb5_context context, krb5_creds *creds,
    } else
       keytab = ap_req_keytab;
 
+#ifdef HAVE_KRB5_CC_NEW_UNIQUE
+   ret = krb5_cc_new_unique(context, "MEMORY", NULL, &local_ccache);
+#else
    ret = krb5_cc_resolve(context, "MEMORY:", &local_ccache);
+#endif
+
    if (ret) {
       log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
 	         "krb5_cc_resolve() failed when verifying KDC");
@@ -715,7 +720,12 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
        goto end;
    }
 
+#ifdef HAVE_KRB5_CC_NEW_UNIQUE
+   ret = krb5_cc_new_unique(context, "MEMORY", NULL, &ret_ccache);
+#else
    ret = krb5_cc_resolve(context, "MEMORY:", &ret_ccache);
+#endif
+
    if (ret) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r, 
    	         "generating new memory ccache failed: %s",
