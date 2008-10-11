@@ -681,6 +681,7 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
 		 krb5_keytab keytab, int krb_verify_kdc, krb5_ccache *ccache)
 {
    krb5_creds creds;
+   krb5_get_init_creds_opt options;
    krb5_error_code ret;
    krb5_ccache ret_ccache = NULL;
    char *name = NULL;
@@ -698,9 +699,10 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
       free(name);
    }
 
+   krb5_get_init_creds_opt_init(&options);
    ret = krb5_get_init_creds_password(context, &creds, principal, 
 	 			      (char *)password, NULL,
-				      NULL, 0, NULL, NULL);
+				      NULL, 0, NULL, &options);
    if (ret) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	         "krb5_get_init_creds_password() failed: %s",
