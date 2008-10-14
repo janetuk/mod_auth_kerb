@@ -39,6 +39,14 @@ AC_ARG_WITH(krb5,
   AC_HELP_STRING([--with-krb5=dir],[use krb5 in dir]),
   [ with_krb5="$withval" ])
 
+if test "x$with_krb5" = "xyes" ; then
+  with_krb5=""
+fi
+
+if test "x$with_krb4" = "xyes" ; then
+  with_krb4=""
+fi
+
 if test "x$with_krb5" != "xno" ; then
   ac_save_CPPFLAGS="$CPPFLAGS"
   ac_save_LDFLAGS="$LDFLAGS"
