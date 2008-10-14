@@ -21,3 +21,8 @@
 /* Define if your krb supports krb5_cc_new_unique function to deal with threading issues */
 #undef HAVE_KRB5_CC_NEW_UNIQUE
 
+/* Define to 1 if you have the <unistd.h> header file. */
+#undef HAVE_UNISTD_H
+
+/* Define to 1 if you have the <sys/types.h> header file. */
+#undef HAVE_SYS_TYPES_H

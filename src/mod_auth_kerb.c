@@ -113,8 +113,7 @@
 #include <netdb.h> /* gethostbyname() */
 #endif /* KRB4 */
 
-#ifndef _WIN32
-/* should be HAVE_UNISTD_H instead */
+#if HAVE_UNISTD_H
 #include <unistd.h>
 #endif
 
