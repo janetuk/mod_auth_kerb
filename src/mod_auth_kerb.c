@@ -677,13 +677,15 @@ end:
 static krb5_error_code
 verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
       		 const char *password, krb5_principal server,
-		 krb5_keytab keytab, int krb_verify_kdc, krb5_ccache *ccache)
+		 krb5_keytab keytab, int krb_verify_kdc, char *krb_service_name, krb5_ccache *ccache)
 {
    krb5_creds creds;
    krb5_get_init_creds_opt options;
    krb5_error_code ret;
    krb5_ccache ret_ccache = NULL;
    char *name = NULL;
+   krb5_keytab_entry entry;
+   krb5_kt_cursor cursor;
 
    /* XXX error messages shouldn't be logged here (and in the while() loop in
     * authenticate_user_krb5pwd() as weell), in order to avoid confusing log
@@ -720,12 +722,42 @@ verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
    }
    */
 
-   if (krb_verify_kdc &&
+   /*if (krb_verify_kdc &&
        (ret = verify_krb5_init_creds(r, context, &creds, server, keytab))) {
        log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 	          "failed to verify krb5 credentials: %s",
 		  krb5_get_err_text(context, ret));
        goto end;
+   }*/
+
+   if (krb_verify_kdc) {
+     if (krb_service_name && strcmp(krb_service_name,"Any") == 0) {
+       ret = krb5_kt_start_seq_get(context, keytab, &cursor);
+       if(!ret) {
+         while((krb5_kt_next_entry(context, keytab, &entry, &cursor)) == 0){
+           if ((ret = verify_krb5_init_creds(r, context, &creds, entry.principal, keytab)) == 0) 
+             break;
+         }
+       }
+       if (ret) {
+         log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	            "failed to verify krb5 credentials: %s",
+		          krb5_get_err_text(context, ret));
+         krb5_kt_end_seq_get(context, keytab, &cursor);
+         krb5_kt_close(context, keytab);
+         goto end;
+       }
+       krb5_kt_end_seq_get(context, keytab, &cursor);
+       krb5_kt_close(context, keytab);
+     }
+     else {
+       if ((ret = verify_krb5_init_creds(r, context, &creds, server, keytab))) {
+       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+	          "failed to verify krb5 credentials: %s",
+		  krb5_get_err_text(context, ret));
+       goto end;
+       }
+     }
    }
 
 #ifdef HAVE_KRB5_CC_NEW_UNIQUE
@@ -915,10 +947,6 @@ authenticate_user_krb5pwd(request_rec *r,
    int             all_principals_unkown;
    char            *p = NULL;
 
-   //temporary fix for KrbServiceName Any, use default SERVICE_NAME
-   if (conf->krb_service_name && strcmp(conf->krb_service_name,"Any") == 0)
-      snprintf(conf->krb_service_name, 5,"%s",SERVICE_NAME);
-
    code = krb5_init_context(&kcontext);
    if (code) {
       log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
@@ -999,7 +1027,7 @@ authenticate_user_krb5pwd(request_rec *r,
       }
 
       code = verify_krb5_user(r, kcontext, client, sent_pw,
-	    		      server, keytab, conf->krb_verify_kdc, &ccache);
+	    		      server, keytab, conf->krb_verify_kdc, conf->krb_service_name, &ccache);
       if (!conf->krb_authoritative && code) {
 	 /* if we're not authoritative, we allow authentication to pass on
 	  * to another modules if (and only if) the user is not known to us */
