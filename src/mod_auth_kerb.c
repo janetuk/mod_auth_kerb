@@ -154,7 +154,7 @@ typedef struct {
 	char *krb_auth_realms;
 	int krb_save_credentials;
 	int krb_verify_kdc;
-	char *krb_service_name;
+	const char *krb_service_name;
 	int krb_authoritative;
 	int krb_delegate_basic;
 #if 0
@@ -933,7 +933,7 @@ authenticate_user_krb5pwd(request_rec *r,
                           const char *auth_line)
 {
    const char      *sent_pw = NULL; 
-   char      *sent_name = NULL;
+   const char      *sent_name = NULL;
    const char      *realms = NULL;
    const char      *realm = NULL;
    krb5_context    kcontext = NULL;
