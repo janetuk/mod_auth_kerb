@@ -43,10 +43,6 @@ if test "x$with_krb5" = "xyes" ; then
   with_krb5=""
 fi
 
-if test "x$with_krb4" = "xyes" ; then
-  with_krb4=""
-fi
-
 if test "x$with_krb5" != "xno" ; then
   ac_save_CPPFLAGS="$CPPFLAGS"
   ac_save_LDFLAGS="$LDFLAGS"
@@ -69,7 +65,7 @@ if test "x$with_krb5" != "xno" ; then
      if test -n "$krb5_config_command"; then
         TMP_KRB5_CPPFLAGS=`$krb5_config_command --cflags gssapi 2>/dev/null`
      fi
-     if test -z "$TMP_KRB5_CPPFLAGS"; then
+     if test -z "$TMP_KRB5_CPPFLAGS" -a -n "with_krb5"; then
         TMP_KRB5_CPPFLAGS="-I$with_krb5/include"
      fi
      CPPFLAGS="$CPPFLAGS $TMP_KRB5_CPPFLAGS"
@@ -95,10 +91,14 @@ if test "x$with_krb5" != "xno" ; then
         LIBS="$ac_save_LIBS"
      fi
   fi
-
+  if test "x$with_krb5"="x"; then
+        tmp_lf_inc=""
+     else
+        tmp_lf_inc="-L"
+  fi
   if test -z "$KRB5_LDFLAGS"; then
      #try MIT
-     TMP_KRB5_LDFLAGS="-L$with_krb5/lib -lgssapi_krb5 -lkrb5 -lk5crypto -lcom_err"
+     TMP_KRB5_LDFLAGS="$tmp_lf_inc$with_krb5/lib -lgssapi_krb5 -lkrb5 -lk5crypto -lcom_err"
      LIBS="$LIBS $TMP_KRB5_LDFLAGS $LIB_resolv"
      AC_CHECK_LIB(krb5, krb5_init_context, [ KRB5_LDFLAGS="$TMP_KRB5_LDFLAGS" ])
      LIBS="$ac_save_LIBS"
@@ -106,7 +106,7 @@ if test "x$with_krb5" != "xno" ; then
 
   if test -z "$KRB5_LDFLAGS"; then
      #Try Heimdal
-     TMP_KRB5_LDFLAGS="-L$with_krb5/lib -lgssapi -lkrb5 -lasn1 -lcrypto -lroken -lcrypt"
+     TMP_KRB5_LDFLAGS="$tmp_lf_inc$with_krb5/lib -lgssapi -lkrb5 -lasn1 -lcrypto -lroken -lcrypt"
      LIBS="$LIBS $TMP_KRB5_LDFLAGS $LIB_resolv"
      AC_CHECK_LIB(krb5, krb5_init_context, [ KRB5_LDFLAGS="$TMP_KRB5_LDFLAGS" ])
      LIBS="$ac_save_LIBS"
@@ -114,7 +114,7 @@ if test "x$with_krb5" != "xno" ; then
 
   if test -z "$KRB5_LDFLAGS"; then
      #Try Heimdal on OpenBSD
-     TMP_KRB5_LDFLAGS="-L$with_krb5/lib -lgssapi -lkrb5 -lasn1 -ldes -lcrypto"
+     TMP_KRB5_LDFLAGS="$tmp_lf_inc$with_krb5/lib -lgssapi -lkrb5 -lasn1 -ldes -lcrypto"
      LIBS="$LIBS $TMP_KRB5_LDFLAGS $LIB_resolv"
      AC_CHECK_LIB(krb5, krb5_init_context, [ KRB5_LDFLAGS="$TMP_KRB5_LDFLAGS" ])
      LIBS="$ac_save_LIBS"
@@ -123,7 +123,6 @@ if test "x$with_krb5" != "xno" ; then
   if test -z "$KRB5_LDFLAGS"; then
      with_krb5=no
   else
-     with_krb5=yes
      AC_DEFINE(KRB5)
      AC_CHECK_LIB(krb5,
                   krb5_cc_new_unique,
@@ -150,8 +149,11 @@ if test "x$with_krb5" != "xno" ; then
      ac_save_CFLAGS="$CFLAGS"
      CFLAGS="$KRB5_CPPFLAGS"
      ac_save_LDFLAGS="$LDFLAGS"
-     LDFLAGS=$KRB5_LDFLAGS
-
+     if test -n "$with_krb5"; then
+        LDFLAGS="$KRB5_LDFLAGS -Wl,-rpath -Wl,$with_krb5/lib"
+     else 
+        LDFLAGS="$KRB5_LDFLAGS"
+     fi
      AC_TRY_RUN([
 #include <string.h>
 #include <krb5.h>
@@ -241,6 +243,10 @@ AC_SUBST(SPNEGO_SRCS)
 AC_ARG_WITH(krb4,
   AC_HELP_STRING([--with-krb4=dir], [use krb4 in dir]),
   [ with_krb4="$withval" ])
+
+if test "x$with_krb4" = "xyes" ; then
+  with_krb4=""
+fi
 
 if test "x$with_krb4" != "xno"; then
   AC_MSG_CHECKING([for Kerberos4 installation])
