@@ -447,7 +447,7 @@ authenticate_user_krb4pwd(request_rec *r,
 			  const char *auth_line)
 {
    int ret;
-   const char *sent_pw;
+   char *sent_pw;
    const char *sent_name;
    char *sent_instance;
    char tkt_file[32];
@@ -1217,7 +1217,7 @@ get_gss_creds(request_rec *r,
    token.length = strlen(buf) + 1;
 
    major_status = gss_import_name(&minor_status, &token,
-	 			  (have_server_princ) ? GSS_KRB5_NT_PRINCIPAL_NAME : GSS_C_NT_HOSTBASED_SERVICE,
+	 			  (have_server_princ) ? (gss_OID) GSS_KRB5_NT_PRINCIPAL_NAME : (gss_OID) GSS_C_NT_HOSTBASED_SERVICE,
 				  &server_name);
    memset(&token, 0, sizeof(token));
    if (GSS_ERROR(major_status)) {
@@ -1382,10 +1382,10 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
      			gss_accept_sec_context_spnego : gss_accept_sec_context;
 #endif
 
-  log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Verifying client data using %s",
+  log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Verifying client data using KRB5 GSS-API %s",
 	     (accept_sec_token == gss_accept_sec_context)
-	       ? "KRB5 GSS-API"
-	       : "SPNEGO GSS-API");
+	       ? ""
+	       : "with our SPNEGO lib");
 
   major_status = accept_sec_token(&minor_status,
 				  &context,
@@ -1400,7 +1400,7 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
 				  &delegated_cred);
   log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
 	     "Client %s us their credential",
-	     (ret_flags & GSS_C_DELEG_FLAG) ? "sent" : "didn't send");
+	     (ret_flags & GSS_C_DELEG_FLAG) ? "delegated" : "didn't delegate");
   if (output_token.length) {
      char *token = NULL;
      size_t len;
@@ -1552,13 +1552,13 @@ static krb5_conn_data *
 already_succeeded(request_rec *r, char *auth_line)
 {
    krb5_conn_data *conn_data;
-   const char keyname[1024];
+   char keyname[1024];
 
    snprintf(keyname, sizeof(keyname) - 1,
 	"mod_auth_kerb::connection::%s::%ld", r->connection->remote_ip, 
 	r->connection->id);
 
-   if (apr_pool_userdata_get(&conn_data, keyname, r->connection->pool) != 0)
+   if (apr_pool_userdata_get((void**)&conn_data, keyname, r->connection->pool) != 0)
 	return NULL;
 
    if(conn_data) {
@@ -1614,7 +1614,7 @@ kerb_authenticate_user(request_rec *r)
 						&auth_kerb_module);
    krb5_conn_data *prevauth = NULL;
    const char *auth_type = NULL;
-   const char *auth_line = NULL;
+   char *auth_line = NULL;
    const char *type = NULL;
    int use_krb5 = 0, use_krb4 = 0;
    int ret;
@@ -1649,7 +1649,7 @@ kerb_authenticate_user(request_rec *r)
 #endif
 
    /* get what the user sent us in the HTTP header */
-   auth_line = MK_TABLE_GET(r->headers_in, (r->proxyreq == PROXYREQ_PROXY)
+   auth_line = (char *)MK_TABLE_GET(r->headers_in, (r->proxyreq == PROXYREQ_PROXY)
 	                                    ? "Proxy-Authorization"
 					    : "Authorization");
    if (!auth_line) {
@@ -1657,7 +1657,7 @@ kerb_authenticate_user(request_rec *r)
 	                    (use_krb5) ? "\0" : NULL);
       return HTTP_UNAUTHORIZED;
    }
-   auth_type = ap_getword_white(r->pool, &auth_line);
+   auth_type = ap_getword_white(r->pool, (const char **)&auth_line);
 
    /* If we are delegating Basic to other modules, DECLINE the request */
    if (conf->krb_delegate_basic &&
