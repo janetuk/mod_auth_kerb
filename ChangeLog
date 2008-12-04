@@ -1,0 +1,7 @@
+-- 5.4 --
+*implemented KrbServiceName Any
+*implemented KrbLocalUserMapping
+*implemented already_succeded function
+*fixed threading issues
+*improved configure and Makefile scripts (mainly for BSD users)
+*fixed minor issues
