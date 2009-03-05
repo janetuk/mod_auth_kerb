@@ -175,7 +175,7 @@ typedef struct {
 } kerb_auth_config;
 
 typedef struct krb5_conn_data {
-	char *authline;
+	char authline[2048];
 	char *user;
 	char *mech;
 	int  last_return;
@@ -331,7 +331,7 @@ static void *kerb_dir_create_config(MK_POOL *p, char *d)
 	((kerb_auth_config *)rec)->krb_ssl_preauthentication = 0;
 #endif
 #ifdef KRB5
-  ((kerb_auth_config *)rec)->krb5_do_auth_to_local = 0;
+        ((kerb_auth_config *)rec)->krb5_do_auth_to_local = 0;
 	((kerb_auth_config *)rec)->krb_method_k5pass = 1;
 	((kerb_auth_config *)rec)->krb_method_gssapi = 1;
 #endif
@@ -679,7 +679,7 @@ end:
 static krb5_error_code
 verify_krb5_user(request_rec *r, krb5_context context, krb5_principal principal,
       		 const char *password, krb5_principal server,
-		 krb5_keytab keytab, int krb_verify_kdc, char *krb_service_name, krb5_ccache *ccache)
+		 krb5_keytab keytab, int krb_verify_kdc, const char *krb_service_name, krb5_ccache *ccache)
 {
    krb5_creds creds;
    krb5_get_init_creds_opt options;
@@ -1550,11 +1550,11 @@ do_krb5_an_to_ln(request_rec *r) {
 #endif /* KRB5 */
 
 static krb5_conn_data *
-already_succeeded(request_rec *r, char *auth_line)
+already_authorized(request_rec *r, char *auth_line)
 {
    krb5_conn_data *conn_data;
    char keyname[1024];
-
+   
    snprintf(keyname, sizeof(keyname) - 1,
 	"mod_auth_kerb::connection::%s::%ld", r->connection->remote_ip, 
 	r->connection->id);
@@ -1569,6 +1569,24 @@ already_succeeded(request_rec *r, char *auth_line)
 	}
    }
    return NULL;
+}
+
+static void
+save_authorized(request_rec *r, char *auth_line, const char *auth_type, int ret) {
+    krb5_conn_data *prevauth;
+    prevauth = (krb5_conn_data *)apr_palloc(r->connection->pool, sizeof(krb5_conn_data));
+    
+    char keyname[1024];
+    
+    prevauth->user = apr_pstrdup(r->connection->pool, MK_USER);
+    snprintf(prevauth->authline, sizeof(prevauth->authline) - 1, "%s", auth_line);
+    prevauth->mech = apr_pstrdup(r->connection->pool, auth_type);
+    prevauth->last_return = ret;
+    
+    snprintf(keyname, sizeof(keyname) - 1,
+             "mod_auth_kerb::connection::%s::%ld",
+             r->connection->remote_ip, r->connection->id);
+    apr_pool_userdata_set(prevauth, keyname, NULL, r->connection->pool);
 }
 
 static void
@@ -1607,34 +1625,49 @@ set_kerb_auth_headers(request_rec *r, const kerb_auth_config *conf,
 #endif
 }
 
-static authn_status authn_krb_password(request_rec *r, const char *user,
-                                       const char *password)
+static int
+authenticate_user(request_rec *r, char *auth_line, const char *type, int use_krb4, int use_krb5)
 {
-kerb_auth_config *conf =
+   int ret;
+   krb5_conn_data *prevauth = NULL;
+   kerb_auth_config *conf =
       (kerb_auth_config *) ap_get_module_config(r->per_dir_config,
                                                 &auth_kerb_module);
-   krb5_conn_data *prevauth = NULL;
-   const char *auth_type = NULL;
-   char *auth_line = NULL;
-   const char *type = NULL;
-   int use_krb5 = 0, use_krb4 = 0;
-   int ret;
-   static int last_return = HTTP_UNAUTHORIZED;
    char *negotiate_ret_value = NULL;
-   char keyname[1024];
+   const char *auth_type = NULL;
+   
+   if (!auth_line) {
+      set_kerb_auth_headers(r, conf, use_krb4, use_krb5, 
+	                    (use_krb5) ? "\0" : NULL);
+      return HTTP_UNAUTHORIZED;
+   }
+   auth_type = ap_getword_white(r->pool, (const char **)&auth_line);
 
-   auth_line = ap_pbase64encode (r->pool, apr_psprintf(r->pool, "%s:%s", user, password));
-
-   if ( (prevauth = already_succeeded(r, auth_line)) == NULL) {
+   /* If we are delegating Basic to other modules, DECLINE the request */
+   if (conf->krb_delegate_basic &&
+#ifdef KRB5
+       !conf->krb_method_k5pass &&
+#endif
+#ifdef KRB4
+       !conf->krb_method_k4pass &&
+#endif
+       (strcasecmp(auth_type, "Basic") == 0))
+       return DECLINED;
+   if ((prevauth = already_authorized(r, auth_line)) == NULL) {
       ret = HTTP_UNAUTHORIZED;
 
 #ifdef KRB5
-      ret = authenticate_user_krb5pwd(r, conf, auth_line);
+   if (use_krb5 && conf->krb_method_gssapi &&
+       strcasecmp(auth_type, MECH_NEGOTIATE) == 0) {
+      ret = authenticate_user_gss(r, conf, auth_line, &negotiate_ret_value);
+   } else if (use_krb5 && (conf->krb_method_k5pass || strcasecmp(type, "Basic"))){
+       ret = authenticate_user_krb5pwd(r, conf, auth_line);
+   }
 #endif
 
 #ifdef KRB4
-      if (ret == HTTP_UNAUTHORIZED && use_krb4 && conf->krb_method_k4pass)
-        ret = authenticate_user_krb4pwd(r, conf, auth_line);
+   if (ret == HTTP_UNAUTHORIZED && use_krb4 && (conf->krb_method_k4pass || strcasecmp(type, "Basic")))
+      ret = authenticate_user_krb4pwd(r, conf, auth_line);
 #endif
 
       if (ret == HTTP_UNAUTHORIZED)
@@ -1650,22 +1683,29 @@ kerb_auth_config *conf =
     * save who was auth'd, if it's not already stashed.
     */
    if(!prevauth) {
-      prevauth = (krb5_conn_data *) apr_pcalloc(r->connection->pool, sizeof(krb5_conn_data));
-      prevauth->user = apr_pstrdup(r->connection->pool, MK_USER);
-      prevauth->authline = apr_pstrdup(r->connection->pool, auth_line);
-      prevauth->mech = apr_pstrdup(r->connection->pool, auth_type);
-      prevauth->last_return = ret;
-      snprintf(keyname, sizeof(keyname) - 1,
-               "mod_auth_kerb::connection::%s::%ld",
-               r->connection->remote_ip, r->connection->id);
-      apr_pool_userdata_set(prevauth, keyname, NULL, r->connection->pool);
+      save_authorized(r, auth_line, auth_type, ret);
    }
-   if (ret == OK && conf->krb5_do_auth_to_local)
-   ret = do_krb5_an_to_ln(r);
 
-   last_return = ret;
+   if (ret == OK && conf->krb5_do_auth_to_local) {
+      ret = do_krb5_an_to_ln(r);
+   }
+   return ret;
+}
+
+static authn_status authn_krb_password(request_rec *r, const char *user,
+                                       const char *password)
+{
+   char *auth_line = NULL;
+   int ret;
+   const char *type = NULL;
    
-   if (last_return == OK) return AUTH_GRANTED;
+   type = ap_auth_type(r);
+   auth_line = ap_pbase64encode (r->pool, apr_psprintf(r->pool, "%s:%s", user, password));
+   auth_line = apr_psprintf(r->pool, "Basic %s", auth_line);
+
+   ret = authenticate_user(r, auth_line, type, 1, 1);
+   
+   if (ret == OK) return AUTH_GRANTED;
    else return AUTH_DENIED;
 }
 
@@ -1675,16 +1715,10 @@ kerb_authenticate_user(request_rec *r)
    kerb_auth_config *conf = 
       (kerb_auth_config *) ap_get_module_config(r->per_dir_config,
 						&auth_kerb_module);
-   krb5_conn_data *prevauth = NULL;
-   const char *auth_type = NULL;
    char *auth_line = NULL;
+   int ret, use_krb4 = 0, use_krb5 = 0;
    const char *type = NULL;
-   int use_krb5 = 0, use_krb4 = 0;
-   int ret;
-   static int last_return = HTTP_UNAUTHORIZED;
-   char *negotiate_ret_value = NULL;
-   char keyname[1024];
-
+   
    /* get the type specified in .htaccess */
    type = ap_auth_type(r);
 
@@ -1715,73 +1749,8 @@ kerb_authenticate_user(request_rec *r)
    auth_line = (char *)MK_TABLE_GET(r->headers_in, (r->proxyreq == PROXYREQ_PROXY)
 	                                    ? "Proxy-Authorization"
 					    : "Authorization");
-   if (!auth_line) {
-      set_kerb_auth_headers(r, conf, use_krb4, use_krb5, 
-	                    (use_krb5) ? "\0" : NULL);
-      return HTTP_UNAUTHORIZED;
-   }
-   auth_type = ap_getword_white(r->pool, (const char **)&auth_line);
+   ret = authenticate_user(r, auth_line, type, use_krb4, use_krb5);
 
-   /* If we are delegating Basic to other modules, DECLINE the request */
-   if (conf->krb_delegate_basic &&
-#ifdef KRB5
-       !conf->krb_method_k5pass &&
-#endif
-#ifdef KRB4
-       !conf->krb_method_k4pass &&
-#endif
-       (strcasecmp(auth_type, "Basic") == 0))
-       return DECLINED;
-
-   if ( (prevauth = already_succeeded(r, auth_line)) == NULL) {
-     ret = HTTP_UNAUTHORIZED;
-
-#ifdef KRB5
-   if (use_krb5 && conf->krb_method_gssapi &&
-       strcasecmp(auth_type, MECH_NEGOTIATE) == 0) {
-      ret = authenticate_user_gss(r, conf, auth_line, &negotiate_ret_value);
-   } else if (use_krb5 && conf->krb_method_k5pass &&
-	      strcasecmp(auth_type, "Basic") == 0) {
-       ret = authenticate_user_krb5pwd(r, conf, auth_line);
-   }
-#endif
-
-#ifdef KRB4
-   if (ret == HTTP_UNAUTHORIZED && use_krb4 && conf->krb_method_k4pass &&
-       strcasecmp(auth_type, "Basic") == 0)
-      ret = authenticate_user_krb4pwd(r, conf, auth_line);
-#endif
-
-   if (ret == HTTP_UNAUTHORIZED)
-      set_kerb_auth_headers(r, conf, use_krb4, use_krb5, negotiate_ret_value);
-
-   } else {
-	ret = prevauth->last_return;
-	MK_USER = prevauth->user;
-	MK_AUTH_TYPE = prevauth->mech;
-   }
-
-   /*
-    * save who was auth'd, if it's not already stashed.
-    */
-     if(!prevauth) {
-       prevauth = (krb5_conn_data *) apr_pcalloc(r->connection->pool, sizeof(krb5_conn_data));
-       prevauth->user = apr_pstrdup(r->connection->pool, MK_USER);
-       prevauth->authline = apr_pstrdup(r->connection->pool, auth_line);
-       prevauth->mech = apr_pstrdup(r->connection->pool, auth_type);
-       prevauth->last_return = ret;
-       snprintf(keyname, sizeof(keyname) - 1,
-           "mod_auth_kerb::connection::%s::%ld", 
-	   r->connection->remote_ip, r->connection->id);
-       apr_pool_userdata_set(prevauth, keyname, NULL, r->connection->pool);
-   }
-
-     if (ret == OK && conf->krb5_do_auth_to_local)
-       ret = do_krb5_an_to_ln(r);
-   
-   /* XXX log_debug: if ret==OK, log(user XY authenticated) */
-
-   last_return = ret;
    return ret;
 }
 
@@ -1872,7 +1841,7 @@ kerb_register_hooks(apr_pool_t *p)
       &authn_krb_password,
    };
 
-   ap_register_provider(p, "authn", "krb", "0", &authn_krb_provider);
+   ap_register_provider(p, "authn", "kerberos", "0", &authn_krb_provider);
    ap_hook_post_config(kerb_init_handler, NULL, NULL, APR_HOOK_MIDDLE);
    ap_hook_check_user_id(kerb_authenticate_user, NULL, NULL, APR_HOOK_MIDDLE);
 }
