@@ -175,7 +175,7 @@ typedef struct {
 } kerb_auth_config;
 
 typedef struct krb5_conn_data {
-	char authline[2048];
+	char *authline;
 	char *user;
 	char *mech;
 	int  last_return;
@@ -1579,7 +1579,7 @@ save_authorized(request_rec *r, char *auth_line, const char *auth_type, int ret)
     char keyname[1024];
     
     prevauth->user = apr_pstrdup(r->connection->pool, MK_USER);
-    snprintf(prevauth->authline, sizeof(prevauth->authline) - 1, "%s", auth_line);
+    prevauth->authline = apr_pstrdup(r->connection->pool, auth_line);
     prevauth->mech = apr_pstrdup(r->connection->pool, auth_type);
     prevauth->last_return = ret;
     
