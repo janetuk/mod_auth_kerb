@@ -1706,7 +1706,7 @@ static authn_status authn_krb_password(request_rec *r, const char *user,
    ret = authenticate_user(r, auth_line, type, 1, 1);
    
    if (ret == OK) return AUTH_GRANTED;
-   else return AUTH_DENIED;
+   else return AUTH_USER_NOT_FOUND;
 }
 
 static int
