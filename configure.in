@@ -32,7 +32,6 @@ AC_STRUCT_TM
 #
 # kerberos5 enviroment
 #
-krb5_config_command=krb5-config
 SPNEGO_SRCS=""
 
 AC_ARG_WITH(krb5,
@@ -44,6 +43,12 @@ if test "x$with_krb5" = "xyes" ; then
 fi
 
 if test "x$with_krb5" != "xno" ; then
+
+  AC_PATH_PROG(krb5_config_command,krb5-config,:,[$PATH:/usr/kerberos/bin:/usr/krb5/bin])
+  if test $krb5_config_command = : ; then
+     AC_MSG_ERROR(krb5-config not found)
+  fi
+
   ac_save_CPPFLAGS="$CPPFLAGS"
   ac_save_LDFLAGS="$LDFLAGS"
   ac_save_LIBS="$LIBS"
