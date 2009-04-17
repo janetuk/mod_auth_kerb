@@ -93,6 +93,11 @@ KrbDelegateBasic on | off       (set to off by default)
    authentication scheme in Apache (Apache 2.1 seems to provide better support
    for multiple various authentication mechanisms).
 
+KrbLocalUserMapping on | off    (set to off by default)
+   When enabled, modul will try to translate authenticated username to local
+   name, which can be used by applications requiring an environment-specific
+   name (e.g. user account name). Simply, the realm name will be stripped out.
+
 Note on server principals
 -------------------------
 Now you have to create an service key for the module, which is needed to
