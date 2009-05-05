@@ -55,8 +55,6 @@
 #define MECH_NEGOTIATE "Negotiate"
 #define SERVICE_NAME "HTTP"
 
-#include <ap_provider.h>
-#include <mod_auth.h>
 #include <httpd.h>
 #include <http_config.h>
 #include <http_core.h>
@@ -81,6 +79,11 @@
 #define apr_pool_cleanup_null	ap_null_cleanup
 #define apr_pool_cleanup_register	ap_register_cleanup
 #endif /* STANDARD20_MODULE_STUFF */
+
+#if AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORVERSION_NUMBER== 2
+#define APACHE22
+#include "mod_auth.h"
+#endif
 
 #ifdef _WIN32
 #define vsnprintf _vsnprintf
@@ -1837,11 +1840,14 @@ kerb_init_handler(apr_pool_t *p, apr_pool_t *plog,
 static void
 kerb_register_hooks(apr_pool_t *p)
 {
+#ifdef APACHE22
    static const authn_provider authn_krb_provider = {
       &authn_krb_password,
+      NULL
    };
 
-   ap_register_provider(p, "authn", "kerberos", "0", &authn_krb_provider);
+   ap_register_provider(p, AUTHN_PROVIDER_GROUP, "kerberos", "0", &authn_krb_provider);
+#endif
    ap_hook_post_config(kerb_init_handler, NULL, NULL, APR_HOOK_MIDDLE);
    ap_hook_check_user_id(kerb_authenticate_user, NULL, NULL, APR_HOOK_MIDDLE);
 }
