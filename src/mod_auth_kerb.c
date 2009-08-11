@@ -532,7 +532,7 @@ authenticate_user_krb4pwd(request_rec *r,
    user = apr_pstrcat(r->pool, user, "@", realm, NULL);
 
    MK_USER = user;
-   MK_AUTH_TYPE = "Basic";
+   MK_AUTH_TYPE = "Kerberos";
    apr_table_setn(r->subprocess_env, "KRBTKFILE", tkt_file_p);
 
    if (!conf->krb_save_credentials)
@@ -1065,7 +1065,7 @@ authenticate_user_krb5pwd(request_rec *r,
       goto end;
    }
    MK_USER = apr_pstrdup (r->pool, name);
-   MK_AUTH_TYPE = "Basic";
+   MK_AUTH_TYPE = "Kerberos";
    free(name);
 
    if (conf->krb_save_credentials)
@@ -1442,15 +1442,15 @@ authenticate_user_gss(request_rec *r, kerb_auth_config *conf,
      goto end;
   }
 
-#if 0
-  /* This is a _Kerberos_ module so multiple authentication rounds aren't
-   * supported. If we wanted a generic GSS authentication we would have to do
-   * some magic with exporting context etc. */
+  /* Multiple authentication rounds aren't supported.  If we wanted a generic
+   * GSS authentication we would have to do some magic with exporting context
+   * etc. */
   if (major_status & GSS_S_CONTINUE_NEEDED) {
+     log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "Multi-iteration authentication isn't supported");
      ret = HTTP_UNAUTHORIZED;
      goto end;
   }
-#endif
 
   major_status = gss_display_name(&minor_status, client_name, &output_token, NULL);
   gss_release_name(&minor_status, &client_name); 
