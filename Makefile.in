@@ -7,13 +7,15 @@ CPPFLAGS = -I. -Ispnegokrb5 $(GSS_CPPFLAGS) $(DEFS)
 LDFLAGS = $(GSS_LDFLAGS)
 CFLAGS =
 
+SRCS = mod_auth_gssapi.c gss.c $(SPNEGO_SRCS)
+
 all: mod_auth_gssapi.la
 
-mod_auth_gssapi.la: mod_auth_gssapi.c $(SPNEGO_SRCS)
-	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" "${SPNEGO_SRCS}" "${APXS} -c"
+mod_auth_gssapi.la: $(SRCS)
+	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" "${SRCS}" "${APXS} -c"
 
-install:
-	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" "${SPNEGO_SRCS}" "${APXS} -c -i -n auth_gssapi"
+install: mod_auth_gssapi.la
+	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" $^ "${APXS} -i -A -n auth_gssapi"
 
 clean:
 	for i in . spnegokrb5; do \
