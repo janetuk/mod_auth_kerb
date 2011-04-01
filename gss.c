@@ -267,9 +267,14 @@ gss_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
      gss_log(APLOG_MARK, APLOG_ERR, 0, r,
 	     "%s", get_gss_error(r, major_status, minor_status,
 		                 "Failed to establish authentication"));
+#if 0
      /* Don't offer the Negotiate method again if call to GSS layer failed */
      /* XXX ... which means we don't return the "error" output */
      *negotiate_ret_value = NULL;
+#endif
+     gss_delete_sec_context(&minor_status, &ctx->context, GSS_C_NO_BUFFER);
+     ctx->context = GSS_C_NO_CONTEXT;
+     ctx->state = GSS_CTX_EMPTY;
      ret = HTTP_UNAUTHORIZED;
      goto end;
   }
