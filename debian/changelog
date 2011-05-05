@@ -1,0 +1,5 @@
+libapache2-mod-auth-gssapi (0.0.1-1) unstable; urgency=low
+
+  * Initial release (Closes: #nnnn)  <nnnn is the bug number of your ITP>
+
+ -- Sam Hartman <hartmans@debian.org>  Thu, 05 May 2011 16:11:26 -0400
