@@ -2,6 +2,13 @@ APXS = @APXS@
 GSS_CPPFLAGS = @GSS_CPPFLAGS@
 GSS_LDFLAGS = @GSS_LDFLAGS@ @LIBS@
 SPNEGO_SRCS = @SPNEGO_SRCS@
+INSTALL=@INSTALL@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libexecdir=@libexecdir@
+sysconfdir=@sysconfdir@
+libdir=@libdir@
+
 
 CPPFLAGS = -I. -Ispnegokrb5 $(GSS_CPPFLAGS) $(DEFS)
 LDFLAGS = $(GSS_LDFLAGS)
@@ -15,7 +22,9 @@ mod_auth_gssapi.la: $(SRCS)
 	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" "${SRCS}" "${APXS} -c"
 
 install: mod_auth_gssapi.la
-	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" $^ "${APXS} -i -A -n auth_gssapi"
+	$(INSTALL) -d $(DESTDIR)${libdir}/apache2/modules
+	$(INSTALL) -d $(DESTDIR)${sysconfdir}/apache2/mods-available
+	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" $^ "${APXS} -i -A  -S LIBEXECDIR=$(DESTDIR)${libdir}/apache2/modules -S SYSCONFDIR=$(DESTDIR)${sysconfdir}/apache2 -n auth_gssapi"
 
 clean:
 	for i in . spnegokrb5; do \
