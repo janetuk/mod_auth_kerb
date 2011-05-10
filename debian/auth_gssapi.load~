@@ -1,1 +1,0 @@
-LoadModule auth_gssapi_module /build/hartmans-libapache2-mod-auth-gssapi_0.0.1-1-amd64-FZlUkg/libapache2-mod-auth-gssapi-0.0.1/debian/libapache2-mod-auth-gssapi/usr/lib/libapache2-mod-auth-gssapi/apache2/modules/mod_auth_gssapi.so

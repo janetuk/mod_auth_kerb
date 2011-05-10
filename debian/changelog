@@ -1,3 +1,9 @@
+libapache2-mod-auth-gssapi (0.0.1-2) unstable; urgency=low
+
+  * Actually install correct load file again
+
+ -- Sam Hartman <hartmans@debian.org>  Tue, 10 May 2011 08:14:26 -0400
+
 libapache2-mod-auth-gssapi (0.0.1-1) unstable; urgency=low
 
   * Initial release (Closes: #nnnn)  <nnnn is the bug number of your ITP>
