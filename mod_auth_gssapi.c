@@ -82,8 +82,8 @@ set_http_headers(request_rec *r, const gss_auth_config *conf,
     if (negotiate_ret_value == NULL)
 	return;
 
-    negoauth_param = (*negotiate_ret_value == '\0') ? "GSSAPI" :
-        apr_pstrcat(r->pool, "GSSAPI ", negotiate_ret_value, NULL);
+    negoauth_param = (*negotiate_ret_value == '\0') ? "Negotiate" :
+        apr_pstrcat(r->pool, "Negotiate ", negotiate_ret_value, NULL);
     apr_table_add(r->err_headers_out, header_name, negoauth_param);
 }
 
@@ -137,7 +137,7 @@ gss_authenticate_user(request_rec *r)
    
     /* get the type specified in Apache configuration */
     type = ap_auth_type(r);
-    if (type == NULL || strcmp(type, "GSSAPI") != 0) {
+    if (type == NULL || strcmp(type, "Negotiate") != 0) {
         gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
 		"AuthType '%s' is not for us, bailing out",
 		(type) ? type : "(NULL)");
@@ -157,7 +157,7 @@ gss_authenticate_user(request_rec *r)
     }
 
     auth_type = ap_getword_white(r->pool, &auth_line);
-    if (strcasecmp(auth_type, "GSSAPI") != 0) {
+    if (strcasecmp(auth_type, "Negotiate") != 0) {
         gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
 		"Unsupported authentication type (%s) requested by client",
 		(auth_type) ? auth_type : "(NULL)");
@@ -175,14 +175,14 @@ gss_authenticate_user(request_rec *r)
     /* optimizing hack */
     if (conn_ctx->state == GSS_CTX_ESTABLISHED && auth_line == NULL) {
 	r->user = apr_pstrdup(r->pool, conn_ctx->user);
-	r->ap_auth_type = "GSSAPI";
+	r->ap_auth_type = "Negotiate";
 	return OK;
     }
 
     /* XXXX subrequests ignored, only successful accesses taken into account! */
     if (!ap_is_initial_req(r) && conn_ctx->state == GSS_CTX_ESTABLISHED) {
 	r->user = apr_pstrdup(r->pool, conn_ctx->user);
-	r->ap_auth_type = "GSSAPI";
+	r->ap_auth_type = "Negotiate";
 	return OK;
     }
 
@@ -195,7 +195,7 @@ gss_authenticate_user(request_rec *r)
 
     if (ret == OK) {
 	r->user = apr_pstrdup(r->pool, conn_ctx->user);
-	r->ap_auth_type = "GSSAPI";
+	r->ap_auth_type = "Negotiate";
     }
 
     /* debug LOG ??? */

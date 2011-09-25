@@ -335,7 +335,7 @@ do_http(const char *host, const char *page, gss_OID mech_oid, gss_cred_id_t cred
 	    if (h == NULL)
 		errx(1, "Got %s but missed `WWW-Authenticate'", req.response);
 
-	    if (strncasecmp(h, "GSSAPI", 6) == 0) {
+	    if (strncasecmp(h, "Negotiate", 9) == 0) {
 		OM_uint32 maj_stat, min_stat;
 		gss_buffer_desc input_token, output_token;
 
@@ -361,8 +361,7 @@ do_http(const char *host, const char *page, gss_OID mech_oid, gss_cred_id_t cred
 		}
 #endif
 
-//		i = 9;
-		i = 6;
+		i = 9;
 		while(h[i] && isspace((unsigned char)h[i]))
 		    i++;
 		if (h[i] != '\0') {
@@ -457,7 +456,7 @@ do_http(const char *host, const char *page, gss_OID mech_oid, gss_cred_id_t cred
 				  output_token.length,
 				  &neg_token);
 		    
-		    asprintf(&headers[0], "Authorization: GSSAPI %s",
+		    asprintf(&headers[0], "Authorization: Negotiate %s",
 			     neg_token);
 		    num_headers = 1;
 		    free(neg_token);
@@ -559,6 +558,18 @@ main(int argc, char *argv[])
 	mechsp = &mechs;
 	maj_stat = gss_acquire_cred_with_password(&min_stat,
 			gss_username, &token, 0,
+			mechsp, GSS_C_INITIATE,
+			&cred, NULL, NULL);
+	if (GSS_ERROR(maj_stat))
+	    gss_err(1, maj_stat, min_stat, "Failed to load initial credentials");
+    } else {
+	gss_OID_set_desc mechs, *mechsp = GSS_C_NO_OID_SET;
+
+	mechs.elements = mech_oid;
+	mechs.count = 1;
+	mechsp = &mechs;
+	maj_stat = gss_acquire_cred(&min_stat,
+			gss_username, 0,
 			mechsp, GSS_C_INITIATE,
 			&cred, NULL, NULL);
 	if (GSS_ERROR(maj_stat))
