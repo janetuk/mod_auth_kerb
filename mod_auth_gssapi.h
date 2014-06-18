@@ -71,6 +71,24 @@ void
 gss_log(const char *file, int line, int level, int status,
         const request_rec *r, const char *fmt, ...);
 
+apr_status_t
+cleanup_conn_ctx(void *data);
+
+gss_conn_ctx
+gss_get_conn_ctx(request_rec *r);
+
+void *
+gss_config_dir_create(apr_pool_t *p, char *d);
+
+static const char *
+get_gss_error(request_rec *r, OM_uint32 err_maj, OM_uint32 err_min, char *prefix);
+
+static int
+get_gss_creds(request_rec *r, gss_auth_config *conf, gss_cred_id_t *server_creds);
+
+static int
+cmp_gss_type(gss_buffer_t token, gss_OID oid);
+
 int
 gss_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
                  const char *auth_line, char **negotiate_ret_value);

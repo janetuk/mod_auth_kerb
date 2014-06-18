@@ -31,6 +31,63 @@
 
 #include "mod_auth_gssapi.h"
 
+void
+gss_log(const char *file, int line, int level, int status,
+        const request_rec *r, const char *fmt, ...)
+{
+    char errstr[1024];
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(errstr, sizeof(errstr), fmt, ap);
+    va_end(ap);
+   
+    ap_log_rerror(file, line, level | APLOG_NOERRNO, status, r, "%s", errstr);
+}
+
+apr_status_t
+cleanup_conn_ctx(void *data)
+{
+    gss_conn_ctx ctx = (gss_conn_ctx) data;
+    OM_uint32 minor_status;
+
+    if (ctx && ctx->context != GSS_C_NO_CONTEXT)
+	gss_delete_sec_context(&minor_status, &ctx->context, GSS_C_NO_BUFFER);
+
+    return APR_SUCCESS;
+}
+
+gss_conn_ctx
+gss_get_conn_ctx(request_rec *r)
+{
+    char key[1024];
+    gss_conn_ctx ctx = NULL;
+
+    snprintf(key, sizeof(key), "mod_auth_gssapi:conn_ctx");
+    apr_pool_userdata_get((void **)&ctx, key, r->connection->pool);
+    /* XXX LOG */
+    if (ctx == NULL) {
+	ctx = (gss_conn_ctx) apr_palloc(r->connection->pool, sizeof(*ctx));
+	if (ctx == NULL)
+	    return NULL;
+	ctx->context = GSS_C_NO_CONTEXT;
+	ctx->state = GSS_CTX_EMPTY;
+	ctx->user = NULL;
+	apr_pool_userdata_set(ctx, key, cleanup_conn_ctx, r->connection->pool);
+    }
+    return ctx;
+}
+
+void *
+gss_config_dir_create(apr_pool_t *p, char *d)
+{
+    gss_auth_config *conf;
+
+    conf = (gss_auth_config *) apr_pcalloc(p, sizeof(*conf));
+    return conf;
+}
+
+
 static const char *
 get_gss_error(request_rec *r, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 {
