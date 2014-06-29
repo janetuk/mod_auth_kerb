@@ -88,7 +88,7 @@ gss_config_dir_create(apr_pool_t *p, char *d)
 }
 
 
-static const char *
+const char *
 get_gss_error(request_rec *r, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 {
    OM_uint32 maj_stat, min_stat; 
@@ -141,7 +141,7 @@ get_gss_error(request_rec *r, OM_uint32 err_maj, OM_uint32 err_min, char *prefix
    return err_msg;
 }
 
-static int
+int
 get_gss_creds(request_rec *r,
               gss_auth_config *conf,
 	      gss_cred_id_t *server_creds)
@@ -206,7 +206,7 @@ get_gss_creds(request_rec *r,
    return 0;
 }
 
-static int
+int
 cmp_gss_type(gss_buffer_t token, gss_OID oid)
 {
    unsigned char *p;

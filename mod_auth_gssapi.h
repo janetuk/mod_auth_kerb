@@ -40,7 +40,7 @@
 #include "spnegokrb5.h"
 #endif
 
-int
-gss_authenticate user(request_rec *r);
+static int
+gss_authenticate_user(request_rec *r);
 
 #endif
