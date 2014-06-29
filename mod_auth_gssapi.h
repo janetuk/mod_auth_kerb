@@ -41,6 +41,10 @@
 #endif
 
 static int
+gss_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
+		 const char *auth_line, char **negotiate_ret_value);
+
+static int
 gss_authenticate_user(request_rec *r);
 
 #endif

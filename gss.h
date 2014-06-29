@@ -83,8 +83,4 @@ get_gss_creds(request_rec *r, gss_auth_config *conf, gss_cred_id_t *server_creds
 int
 cmp_gss_type(gss_buffer_t token, gss_OID oid);
 
-int
-gss_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
-		 const char *auth_line, char **negotiate_ret_value);
-
 #endif

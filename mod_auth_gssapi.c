@@ -65,6 +65,187 @@ set_http_headers(request_rec *r, const gss_auth_config *conf,
 }
 
 static int
+gss_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
+		 const char *auth_line, char **negotiate_ret_value)
+{
+  OM_uint32 major_status, minor_status, minor_status2;
+  gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;
+  gss_buffer_desc output_token = GSS_C_EMPTY_BUFFER;
+  const char *auth_param = NULL;
+  int ret;
+  gss_name_t client_name = GSS_C_NO_NAME;
+  gss_cred_id_t delegated_cred = GSS_C_NO_CREDENTIAL;
+  gss_cred_id_t server_creds = GSS_C_NO_CREDENTIAL;
+  OM_uint32 ret_flags = 0;
+  gss_OID_desc spnego_oid;
+  OM_uint32 (*accept_sec_context)
+		(OM_uint32 *, gss_ctx_id_t *, const gss_cred_id_t,
+		 const gss_buffer_t, const gss_channel_bindings_t,
+		 gss_name_t *, gss_OID *, gss_buffer_t, OM_uint32 *,
+		 OM_uint32 *, gss_cred_id_t *);
+
+  *negotiate_ret_value = "\0";
+
+  spnego_oid.length = 6;
+  spnego_oid.elements = (void *)"\x2b\x06\x01\x05\x05\x02";
+
+  if (conf->krb5_keytab) {
+     char *ktname;
+     /* we don't use the ap_* calls here, since the string passed to putenv()
+      * will become part of the enviroment and shouldn't be free()ed by apache
+      */
+     ktname = malloc(strlen("KRB5_KTNAME=") + strlen(conf->krb5_keytab) + 1);
+     if (ktname == NULL) {
+	gss_log(APLOG_MARK, APLOG_ERR, 0, r, "malloc() failed: not enough memory");
+	ret = HTTP_INTERNAL_SERVER_ERROR;
+	goto end;
+     }
+     sprintf(ktname, "KRB5_KTNAME=%s", conf->krb5_keytab);
+     putenv(ktname);
+#ifdef HEIMDAL
+     /* Seems to be also supported by latest MIT */
+     gsskrb5_register_acceptor_identity(conf->krb_5_keytab);
+#endif
+  }
+
+  ret = get_gss_creds(r, conf, &server_creds);
+  if (ret)
+     goto end;
+
+  /* ap_getword() shifts parameter */
+  auth_param = ap_getword_white(r->pool, &auth_line);
+  if (auth_param == NULL) {
+     gss_log(APLOG_MARK, APLOG_ERR, 0, r,
+	     "No Authorization parameter in request from client");
+     ret = HTTP_UNAUTHORIZED;
+     goto end;
+  }
+
+  if (ctx->state == GSS_CTX_ESTABLISHED) {
+      gss_delete_sec_context(&minor_status, &ctx->context, GSS_C_NO_BUFFER);
+      ctx->context = GSS_C_NO_CONTEXT;
+      ctx->state = GSS_CTX_EMPTY;
+  }
+
+  input_token.length = apr_base64_decode_len(auth_param) + 1;
+  input_token.value = apr_pcalloc(r->connection->pool, input_token.length);
+  if (input_token.value == NULL) {
+     gss_log(APLOG_MARK, APLOG_ERR, 0, r,
+	     "ap_pcalloc() failed (not enough memory)");
+     ret = HTTP_INTERNAL_SERVER_ERROR;
+     goto end;
+  }
+  input_token.length = apr_base64_decode(input_token.value, auth_param);
+
+  /* LOG length, type */
+
+#ifdef GSSAPI_SUPPORTS_SPNEGO
+  accept_sec_context = gss_accept_sec_context;
+#else
+  accept_sec_context = (cmp_gss_type(&input_token, &spnego_oid) == 0) ?
+		      gss_accept_sec_context_spnego : gss_accept_sec_context;
+#endif  
+
+  major_status = accept_sec_context(&minor_status,
+				  &ctx->context,
+				  server_creds,
+				  &input_token,
+				  GSS_C_NO_CHANNEL_BINDINGS,
+				  NULL,
+				  NULL,
+				  &output_token,
+				  &ret_flags,
+				  NULL,
+				  &delegated_cred);
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
+	  "Client %s us their credential",
+	  (ret_flags & GSS_C_DELEG_FLAG) ? "delegated" : "didn't delegate");
+  if (output_token.length) {
+     char *token = NULL;
+     size_t len;
+     
+     len = apr_base64_encode_len(output_token.length) + 1;
+     token = apr_pcalloc(r->connection->pool, len + 1);
+     if (token == NULL) {
+	gss_log(APLOG_MARK, APLOG_ERR, 0, r,
+	        "ap_pcalloc() failed (not enough memory)");
+        ret = HTTP_INTERNAL_SERVER_ERROR;
+	gss_release_buffer(&minor_status2, &output_token);
+	goto end;
+     }
+     apr_base64_encode(token, output_token.value, output_token.length);
+     token[len] = '\0';
+     *negotiate_ret_value = token;
+     gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
+	     "GSS-API token of length %d bytes will be sent back",
+	     output_token.length);
+     gss_release_buffer(&minor_status2, &output_token);
+  }
+
+  if (GSS_ERROR(major_status)) {
+     gss_log(APLOG_MARK, APLOG_ERR, 0, r,
+	     "%s", get_gss_error(r, major_status, minor_status,
+		                 "Failed to establish authentication"));
+#if 0
+     /* Don't offer the Negotiate method again if call to GSS layer failed */
+     /* XXX ... which means we don't return the "error" output */
+     *negotiate_ret_value = NULL;
+#endif
+     gss_delete_sec_context(&minor_status, &ctx->context, GSS_C_NO_BUFFER);
+     ctx->context = GSS_C_NO_CONTEXT;
+     ctx->state = GSS_CTX_EMPTY;
+     ret = HTTP_UNAUTHORIZED;
+     goto end;
+  }
+
+  if (major_status & GSS_S_CONTINUE_NEEDED) {
+     ctx->state = GSS_CTX_IN_PROGRESS;
+     ret = HTTP_UNAUTHORIZED;
+     goto end;
+  }
+
+  major_status = gss_inquire_context(&minor_status, ctx->context, &client_name,
+				     NULL, NULL, NULL, NULL, NULL, NULL);
+  if (GSS_ERROR(major_status)) {
+      gss_log(APLOG_MARK, APLOG_ERR, 0, r,
+	      "%s", get_gss_error(r, major_status, minor_status, "gss_inquire_context() failed"));
+      ret = HTTP_INTERNAL_SERVER_ERROR;
+      goto end;
+  }
+
+  major_status = gss_display_name(&minor_status, client_name, &output_token, NULL);
+  gss_release_name(&minor_status, &client_name); 
+  if (GSS_ERROR(major_status)) {
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r,
+	    "%s", get_gss_error(r, major_status, minor_status,
+		                "gss_display_name() failed"));
+    ret = HTTP_INTERNAL_SERVER_ERROR;
+    goto end;
+  }
+
+  ctx->state = GSS_CTX_ESTABLISHED;
+  ctx->user = apr_pstrdup(r->pool, output_token.value);
+  gss_release_buffer(&minor_status, &output_token);
+
+  ret = OK;
+
+end:
+  if (delegated_cred)
+     gss_release_cred(&minor_status, &delegated_cred);
+
+  if (output_token.length) 
+     gss_release_buffer(&minor_status, &output_token);
+
+  if (client_name != GSS_C_NO_NAME)
+     gss_release_name(&minor_status, &client_name);
+
+  if (server_creds != GSS_C_NO_CREDENTIAL)
+     gss_release_cred(&minor_status, &server_creds);
+
+  return ret;
+}
+
+static int
 gss_authenticate_user(request_rec *r)
 {
     gss_auth_config *conf = 
