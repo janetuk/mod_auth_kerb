@@ -14,17 +14,22 @@ CPPFLAGS = -I. -Ispnegokrb5 $(GSS_CPPFLAGS) $(DEFS)
 LDFLAGS = $(GSS_LDFLAGS)
 CFLAGS =
 
-SRCS = mod_auth_gssapi.c gss.c $(SPNEGO_SRCS)
+GSSAPI_SRCS = mod_auth_gssapi.c gss.c $(SPNEGO_SRCS)
+GSSWEB_SRCS = mod_auth_gssweb.c gss.c $(SPNEGO_SRCS)
 
-all: mod_auth_gssapi.la
+all: mod_auth_gssapi.la mod_auth_gssweb.la
 
-mod_auth_gssapi.la: $(SRCS)
-	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" "${SRCS}" "${APXS} -c"
+mod_auth_gssapi.la: $(GSSAPI_SRCS)
+	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" "${GSSAPI_SRCS}" "${APXS} -c"
 
-install: mod_auth_gssapi.la
+mod_auth_gssweb.la: $(GSSWEB_SRCS)
+	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" "${GSSWEB_SRCS}" "${APXS} -c"
+
+install: mod_auth_gssapi.la mod_auth_gssweb.la
 	$(INSTALL) -d $(DESTDIR)${libdir}/apache2/modules
 	$(INSTALL) -d $(DESTDIR)${sysconfdir}/apache2/mods-available
 	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" $^ "${APXS} -i -A  -S LIBEXECDIR=$(DESTDIR)${libdir}/apache2/modules -S SYSCONFDIR=$(DESTDIR)${sysconfdir}/apache2 -n auth_gssapi"
+	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" $^ "${APXS} -i -A  -S LIBEXECDIR=$(DESTDIR)${libdir}/apache2/modules -S SYSCONFDIR=$(DESTDIR)${sysconfdir}/apache2 -n auth_gssweb"
 
 clean:
 	for i in . spnegokrb5; do \
