@@ -29,8 +29,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __MOD_AUTH_GSSWEB_H__
-#define __MOD_AUTH_GSSWEB_H__
+#ifndef __GSS_H__
+#define __GSS_H__
 
 #include <httpd.h>
 #include <http_config.h>
@@ -43,10 +43,6 @@
 #include <apr_strings.h>
 
 #include <gssapi.h>
-
-// #ifndef GSSAPI_SUPPORTS_SPNEGO
-// #include "spnegokrb5.h"
-// #endif
 
 #define SERVICE_NAME "HTTP"
 
@@ -78,16 +74,13 @@ gss_get_conn_ctx(request_rec *r);
 void *
 gss_config_dir_create(apr_pool_t *p, char *d);
 
-static const char *
+const char *
 get_gss_error(request_rec *r, OM_uint32 err_maj, OM_uint32 err_min, char *prefix);
 
-static int
+int
 get_gss_creds(request_rec *r, gss_auth_config *conf, gss_cred_id_t *server_creds);
 
-static int
+int
 cmp_gss_type(gss_buffer_t token, gss_OID oid);
 
-int
-gssweb_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
-                 const char *auth_line, char **negotiate_ret_value);
 #endif
