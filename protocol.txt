@@ -1,3 +1,5 @@
+GSSWEB PROTOCOL DESCRIPTION
+
 This file describes the protocol used for GSSWeb authentication.
 
 The client goes to /<app>/gss and does a POST containing:
