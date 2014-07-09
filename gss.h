@@ -52,13 +52,16 @@ typedef struct {
 } gss_auth_config;
 
 typedef struct gss_conn_ctx_t {
-    gss_ctx_id_t context;
-    enum {
-	GSS_CTX_EMPTY,
-    	GSS_CTX_IN_PROGRESS,
-    	GSS_CTX_ESTABLISHED,
-    } state;
-    char *user;
+  gss_ctx_id_t context;
+  enum {
+    GSS_CTX_EMPTY,
+    GSS_CTX_IN_PROGRESS,
+    GSS_CTX_FAILED,
+    GSS_CTX_ESTABLISHED,
+  } state;
+  char *user;
+  gss_buffer_desc *output_token;
+  unsigned int nonce;
 } *gss_conn_ctx;
 
 void

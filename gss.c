@@ -63,7 +63,7 @@ gss_get_conn_ctx(request_rec *r)
     char key[1024];
     gss_conn_ctx ctx = NULL;
 
-    snprintf(key, sizeof(key), "mod_auth_gssapi:conn_ctx");
+    snprintf(key, sizeof(key), "mod_auth_gssweb:conn_ctx");
     apr_pool_userdata_get((void **)&ctx, key, r->connection->pool);
     /* XXX LOG */
     if (ctx == NULL) {

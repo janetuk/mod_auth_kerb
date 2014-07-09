@@ -57,39 +57,30 @@ gssweb_authenticate_user(request_rec *r)
     char *negotiate_ret_value = NULL;
     gss_conn_ctx conn_ctx = NULL;
     int ret;
+    OM_uint32 major_status, minor_status, minor_status2;
+    gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;
+    gss_buffer_desc output_token = GSS_C_EMPTY_BUFFER;
+    const char *posted_token = NULL;
+    int ret;
+    gss_name_t client_name = GSS_C_NO_NAME;
+    gss_cred_id_t delegated_cred = GSS_C_NO_CREDENTIAL;
+    gss_cred_id_t server_creds = GSS_C_NO_CREDENTIAL;
+    OM_uint32 ret_flags = 0;
+    unsigned int nonce;
 
     gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "Entering GSSWeb authentication");
    
-    /* get the type specified in Apache configuration */
+    /* Check if this is for our auth type */
     type = ap_auth_type(r);
     if (type == NULL || strcasecmp(type, "GSSWeb") != 0) {
         gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
-		"AuthType '%s' is not for us, bailing out",
+		"AuthType '%s' is not GSSWeb, bailing out",
 		(type) ? type : "(NULL)");
 
         return DECLINED;
     }
 
-    /* get what the user sent us in the HTTP header */
-    auth_line = apr_table_get(r->headers_in, (r->proxyreq == PROXYREQ_PROXY)
- 	                                    ? "Proxy-Authorization"
-					    : "Authorization");
-    if (auth_line == NULL) {
-        gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
-		"Client hasn't sent an authorization header, giving up");
-        set_http_headers(r, conf, "\0");
-        return HTTP_UNAUTHORIZED;
-    }
-
-    auth_type = ap_getword_white(r->pool, &auth_line);
-    if (strcasecmp(auth_type, "gssweb") != 0) {
-        gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
-		"Unsupported authentication type (%s) requested by client",
-		(auth_type) ? auth_type : "(NULL)");
-        set_http_headers(r, conf, "\0");
-        return HTTP_UNAUTHORIZED;
-    }
-
+    /* Set up a GSS context for this request, if there isn't one already */
     conn_ctx = gss_get_conn_ctx(r);
     if (conn_ctx == NULL) {
 	gss_log(APLOG_MARK, APLOG_ERR, 0, r,
@@ -97,35 +88,102 @@ gssweb_authenticate_user(request_rec *r)
 	return HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    /* optimizing hack */
-    if (conn_ctx->state == GSS_CTX_ESTABLISHED && auth_line == NULL) {
-	r->user = apr_pstrdup(r->pool, conn_ctx->user);
-	r->ap_auth_type = "Negotiate";
-	return OK;
+    /* Set-up the output filter, if we haven't already */
+    if (GSS_CTX_EMPTY == conn_ctx->state) {
+
+      // TBD -- Set-up the output filter 
     }
 
-    /* XXXX subrequests ignored, only successful accesses taken into account! */
-    if (!ap_is_initial_req(r) && conn_ctx->state == GSS_CTX_ESTABLISHED) {
-	r->user = apr_pstrdup(r->pool, conn_ctx->user);
-	r->ap_auth_type = "Negotiate";
-	return OK;
+    /* Read the token and nonce from the POST */
+    //TBD -- gss_log the values
+
+    /* If the nonce is set and doesn't match, start over */
+    if ((0 != conn_ctx_nonce) && (conn_ctx->nonce != nonce) {
+	if (GSS_C_NO_CONTEXT != conn_ctx->context) {
+	  gss_delete_sec_context(&minor_status, &conn_ctx->context, GSS_C_NO_BUFFER);
+	}
+	conn_ctx->context = GSS_C_NO_CONTEXT;
+	conn_ctx->state = GSS_CTX_EMPTY;
+	conn_ctx->user = NULL;
+	if (NULL != conn_ctx->output_token) {
+	  // TBD -- release the output token
+	}
+	conn_ctx->output_token = NULL;
+      }
+      conn_ctx->nonce = nonce;
+      
+    /* If the output filter reported an internal server error, return it */
+    if (GSS_CTX_ERROR == conn_ctx->state) {
+      ret = HTTP_INTERNAL_SERVER_ERROR;
+      gss_log(APLOG_MARK, APLOG_ERR, 0, r,
+	      "Output filter returned internal server error, reporting.");
+      goto end;
     }
 
-    ret = gss_authenticate(r, conf, conn_ctx,
-	                   auth_line, &negotiate_ret_value);
-    if (ret == HTTP_UNAUTHORIZED || ret == OK) {
-        /* LOG?? */
-        set_http_headers(r, conf, negotiate_ret_value);
+    /* Acquire server credentials */
+    ret = get_gss_creds(r, conf, &server_creds);
+    if (ret)
+      goto end;
+
+    /* Decode input token */
+    input_token.length = apr_base64_decode(input_token.value, posted_token);
+
+    /* Call gss_accept_sec_context */
+    major_status = gss_accept_sec_context(&minor_status,
+					  &ctx->context,
+					  server_creds,
+					  &input_token,
+					  GSS_C_NO_CHANNEL_BINDINGS,
+					  NULL,
+					  NULL,
+					  &output_token,
+					  &ret_flags,
+					  NULL,
+					  &delegated_cred);
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
+	    "Client %s us their credential",
+	    (ret_flags & GSS_C_DELEG_FLAG) ? "delegated" : "didn't delegate");
+
+    if (GSS_ERROR(major_status)) {
+      gss_log(APLOG_MARK, APLOG_ERR, 0, r,
+	      "%s", get_gss_error(r, major_status, minor_status,
+				  "Failed to establish authentication"));
+      gss_delete_sec_context(&minor_status, &ctx->context, GSS_C_NO_BUFFER);
+      ctx->context = GSS_C_NO_CONTEXT;
+      ctx->state = GSS_CTX_EMPTY;
+      ret = HTTP_UNAUTHORIZED;
+      goto end;
     }
 
-    if (ret == OK) {
-	r->user = apr_pstrdup(r->pool, conn_ctx->user);
-	r->ap_auth_type = "Negotiate";
+    /* Store the token & nonce in the stored context */
+    conn_ctx.output_token = &output_token;
+    conn_ctx.nonce = nonce;
+
+    /* If we aren't done yet, go around again */
+    if (major_status & GSS_S_CONTINUE_NEEDED) {
+      ctx->state = GSS_CTX_IN_PROGRESS;
+      ret = HTTP_UNAUTHORIZED;
+      goto end;
     }
 
-    /* debug LOG ??? */
+    ctx->state = GSS_CTX_ESTABLISHED;
+    ret = OK;
 
-    return ret;
+ end:
+  if (delegated_cred)
+     gss_release_cred(&minor_status, &delegated_cred);
+
+  if (output_token.length) 
+     gss_release_buffer(&minor_status, &output_token);
+
+  if (client_name != GSS_C_NO_NAME)
+     gss_release_name(&minor_status, &client_name);
+
+  if (server_creds != GSS_C_NO_CREDENTIAL)
+     gss_release_cred(&minor_status, &server_creds);
+
+  return ret;
+
 }
 
 static void
