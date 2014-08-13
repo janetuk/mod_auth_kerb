@@ -15,7 +15,7 @@ The server will respond by sending a JSON reponse:
  application: {
     data: "<Base-64-encoded & escaped application data>",
     content-type: "<Original content-type>",
-    Content-Length: "<Original content-length>"}
+    content-length: "<Original content-length>"}
 }
 
 The "gssweb" section in the response is used for the GSS exchange.

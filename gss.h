@@ -58,9 +58,10 @@ typedef struct gss_conn_ctx_t {
     GSS_CTX_IN_PROGRESS,
     GSS_CTX_FAILED,
     GSS_CTX_ESTABLISHED,
+    GSS_CTX_ERROR,
   } state;
   char *user;
-  gss_buffer_desc *output_token;
+  gss_buffer_desc output_token;
   unsigned int nonce;
 } *gss_conn_ctx;
 

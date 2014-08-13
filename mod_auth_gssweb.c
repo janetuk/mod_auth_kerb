@@ -1,39 +1,42 @@
 /*
- * Copyright (c) 2010 CESNET
+ * Copyright (c) 2012, 2013, 2014 JANET(UK)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * modification, are permitted provided that the following conditions
+ * are met:
  *
- * 1. Redistributions of source code must retain the above copyright notice,
- *    this list of conditions and the following disclaimer.
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
  *
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
  *
- * 3. Neither the name of CESNET nor the names of its contributors may
- *    be used to endorse or promote products derived from this software
+ * 3. Neither the name of JANET(UK) nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- */
-
-/* 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * NOTE: Some code in this module was derived from code in
+ * mod_auth_gssapi.c which is copyrighted by CESNET.  See that file
+ * for full copyright details.
+ *
  * NOTE: Portions of the code in this file were derived from example
  * code distributed under the Apache 2.0 license:
  *     http://www.apache.org/licenses/LICENSE-2.0
- * The example code was modified for inclusion in this module.
  * 
  * This module implements the Apache server side of the GSSWeb
  * authentiction type which allows Moonshot to be used for
@@ -68,36 +71,37 @@ static const command_rec gssweb_config_cmds[] = {
 #define DEFAULT_ENCTYPE		"application/x-www-form-urlencoded"
 #define GSS_MAX_TOKEN_SIZE	4096	//TBD -- check this value
 
-/* gssweb_read_post() -- Reads the post data associated with a
- * request.
+/* gssweb_read_req() -- reads the request data into a buffer 
  */
-static int gssweb_read_post(request_rec *r, const char **rbuf)
+static int gssweb_read_req(request_rec *r, const char **rbuf, apr_off_t *size)
 {
-  int rc;
-  if ((rc = ap_setup_client_block(r, REQUEST_CHUNKED_ERROR)) != OK) {
-    return rc;
+  int rc = OK;
+
+  if((rc = ap_setup_client_block(r, REQUEST_CHUNKED_ERROR))) {
+    return(rc);
   }
-  if (ap_should_client_block(r)) {
-    char argsbuffer[GSS_MAX_TOKEN_SIZE+256];
-    int rsize, len_read, rpos = 0;
-    long length = r->remaining;
-    *rbuf = ap_pcalloc(r->pool, length + 1);
-    ap_hard_timeout("util_read", r);
-    while ((len_read =
-	    ap_get_client_block(r, argsbuffer, sizeof(argsbuffer))) > 0) { 
-      ap_reset_timeout(r);
-      if ((rpos + len_read) > length) {
+  
+  if(ap_should_client_block(r)) {
+
+    char         argsbuffer[HUGE_STRING_LEN];
+    apr_off_t    rsize, len_read, rpos = 0;
+    apr_off_t length = r->remaining;
+
+    *rbuf = (const char *) apr_pcalloc(r->pool, (apr_size_t) (length + 1));
+    *size = length;
+    while((len_read = ap_get_client_block(r, argsbuffer, sizeof(argsbuffer))) > 0) {
+      if((rpos + len_read) > length) {
 	rsize = length - rpos;
       }
       else {
 	rsize = len_read;
       }
-      memcpy((char*)*rbuf + rpos, argsbuffer, rsize);
+      
+      memcpy((char *) *rbuf + rpos, argsbuffer, (size_t) rsize);
       rpos += rsize;
     }
-    ap_kill_timeout(r);
   }
-  return rc;
+  return(rc);
 }
 
 /* gssweb_get_post_data() -- Gets the token and nonce from the request
@@ -106,34 +110,57 @@ static int gssweb_read_post(request_rec *r, const char **rbuf)
 static int gssweb_get_post_data(request_rec *r, int *nonce, gss_buffer_desc *input_token)
 {
   const char *data;
+  apr_off_t datalen;
   const char *key, *val, *type;
   int rc = 0;
 
+  *nonce = 0;
+  input_token->length = 0;
+  input_token->value = NULL;
+
   if(r->method_number != M_POST) {
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: Request data is not a POST, declining.");
     return DECLINED;
   }
 
-  type = ap_table_get(r->headers_in, "Content-Type");
+  type = apr_table_get(r->headers_in, "Content-Type");
   if(strcasecmp(type, DEFAULT_ENCTYPE) != 0) {
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: Unexpected content type, declining.");
     return DECLINED;
   }
 
-  if((rc = util_read(r, &data)) != OK) {
+  if((rc = gssweb_read_req(r, &data, &datalen)) != OK) {
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: Data read error, rc = %d", rc);
     return rc;
   }
-  if(*tab) {
-    ap_clear_table(*tab);
-  }
-  else {
-    *tab = ap_make_table(r->pool, 8);
-  }
+
   while(*data && (val = ap_getword(r->pool, &data, '&'))) { 
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: obtained val from ap_getword() (%s)", val);
     key = ap_getword(r->pool, &val, '=');
     ap_unescape_url((char*)key);
     ap_unescape_url((char*)val);
-    ap_table_merge(*tab, key, val);
+    if (0 == strcasecmp(key, "token")) {
+      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: found token (%s)", val);
+      input_token->value = malloc(strlen(val));
+      input_token->length = apr_base64_decode(input_token->value, val);
+      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: Token successfully decoded.");
+    }
+    else if (0 == strcasecmp(key, "nonce")) {
+      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: found nonce (%s)", val);
+      *nonce = atoi(val);
+    }
+    else {
+      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: unknown key (%s)", key);
+    }
   }
-  return OK;
+  if ((0 == *nonce) || (0 == input_token->length)) {
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: nonce (%d) or token len (%d) is 0, declining", *nonce, input_token->length);
+    return DECLINED;
+  }
+  else {
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: returning nonce (%d) and token (%s)", *nonce, input_token->value);
+    return OK;
+  }
 }
 
 /* gssweb_authenticate_filter() -- Output filter for gssweb authentication.
@@ -145,6 +172,11 @@ static int gssweb_get_post_data(request_rec *r, int *nonce, gss_buffer_desc *inp
 static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
                                         apr_bucket_brigade *pbbIn)
 {
+  apr_status_t ret = 0;
+
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, f->r, "Entering GSSWeb filter");
+
+#if 0
   request_rec *r = f->r;
   conn_rec *c = r->connection;
   apr_bucket *pbktIn;
@@ -192,6 +224,8 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
    */
   apr_brigade_cleanup(pbbIn);
   return ap_pass_brigade(f->next,pbbOut);
+#endif
+  return ret;
 }
 
 /* gssweb_authenticate_user() -- Hook to perform actual user
@@ -216,7 +250,6 @@ gssweb_authenticate_user(request_rec *r)
   OM_uint32 major_status, minor_status, minor_status2;
   gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;
   gss_buffer_desc output_token = GSS_C_EMPTY_BUFFER;
-  const char *posted_token = NULL;
   gss_name_t client_name = GSS_C_NO_NAME;
   gss_cred_id_t delegated_cred = GSS_C_NO_CREDENTIAL;
   gss_cred_id_t server_creds = GSS_C_NO_CREDENTIAL;
@@ -259,9 +292,8 @@ gssweb_authenticate_user(request_rec *r)
     conn_ctx->state = GSS_CTX_EMPTY;
     conn_ctx->user = NULL;
     if (0 != conn_ctx->output_token.length) {
-      gss_release_buffer(&minor_status, &conn_ctx->output_token);
+      gss_release_buffer(&minor_status, &(conn_ctx->output_token));
     }
-      conn_ctx->output_token = GSS_C_EMPTY_BUFFER;
   }
  
   /* If the output filter reported an internal server error, return it */
@@ -275,22 +307,22 @@ gssweb_authenticate_user(request_rec *r)
   /* If this is a new authentiction cycle, set-up the output filter. */
   if (GSS_CTX_EMPTY == conn_ctx->state)
  {
-   ap_add_output_filter("gssweb_auth_filter",conn_ctx->ctx,r,r->connection);
-   ap_register_output_filter("gssweb_auth_filter",gssweb_authenticate_filter,AP_FTYPE_RESOURCE);
-
+   ap_add_output_filter("gssweb_auth_filter",conn_ctx->context,r,r->connection);
+   ap_register_output_filter("gssweb_auth_filter",gssweb_authenticate_filter, NULL, AP_FTYPE_RESOURCE);
   }
 
   /* Acquire server credentials */
   ret = get_gss_creds(r, conf, &server_creds);
   if (ret)
     goto end;
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate: Server credentials acquired.");
     
   /* Decode input token */
-  input_token.length = apr_base64_decode(input_token.value, posted_token);
-  
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate: Output token decoded, calling gss_accept_sec_context().");
+
   /* Call gss_accept_sec_context */
   major_status = gss_accept_sec_context(&minor_status,
-					&ctx->context,
+					&conn_ctx->context,
 					server_creds,
 					&input_token,
 					GSS_C_NO_CHANNEL_BINDINGS,
@@ -308,12 +340,15 @@ gssweb_authenticate_user(request_rec *r)
     gss_log(APLOG_MARK, APLOG_ERR, 0, r,
 	    "%s", get_gss_error(r, major_status, minor_status,
 				"Failed to establish authentication"));
-    gss_delete_sec_context(&minor_status, &ctx->context, GSS_C_NO_BUFFER);
-    ctx->context = GSS_C_NO_CONTEXT;
-    ctx->state = GSS_CTX_EMPTY;
+    gss_delete_sec_context(&minor_status, &conn_ctx->context, GSS_C_NO_BUFFER);
+    conn_ctx->context = GSS_C_NO_CONTEXT;
+    conn_ctx->state = GSS_CTX_EMPTY;
     ret = HTTP_UNAUTHORIZED;
     goto end;
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate: Decoding ouput token.");
   }
+
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate: Got sec context, storing nonce and output token.");
 
   /* Store the nonce & ouput token in the stored context */
   conn_ctx->nonce = nonce;
@@ -321,13 +356,14 @@ gssweb_authenticate_user(request_rec *r)
     
   /* If we aren't done yet, go around again */
   if (major_status & GSS_S_CONTINUE_NEEDED) {
-    ctx->state = GSS_CTX_IN_PROGRESS;
+    conn_ctx->state = GSS_CTX_IN_PROGRESS;
     ret = HTTP_UNAUTHORIZED;
     goto end;
   }
 
-  ctx->state = GSS_CTX_ESTABLISHED;
-  // TBD -- set the user and authtype in the request structure
+  conn_ctx->state = GSS_CTX_ESTABLISHED;
+	r->user = apr_pstrdup(r->pool, conn_ctx->user);
+	r->ap_auth_type = "GSSWeb";
   ret = OK;
 
  end:

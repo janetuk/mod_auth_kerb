@@ -32,62 +32,9 @@
 #ifndef __MOD_AUTH_GSSWEB_H__
 #define __MOD_AUTH_GSSWEB_H__
 
-#include <httpd.h>
-#include <http_config.h>
-#include <http_core.h>
-#include <http_log.h>
-#include <http_protocol.h>
-#include <http_request.h>
-
-#include <apr_base64.h>
-#include <apr_strings.h>
-
-#include <gssapi.h>
-
-// #ifndef GSSAPI_SUPPORTS_SPNEGO
-// #include "spnegokrb5.h"
-// #endif
-
-#define SERVICE_NAME "HTTP"
-
-typedef struct {
-    const char *service_name;
-    const char *krb5_keytab;
-} gss_auth_config;
-
-typedef struct gss_conn_ctx_t {
-    gss_ctx_id_t context;
-    enum {
-	GSS_CTX_EMPTY,
-    	GSS_CTX_IN_PROGRESS,
-    	GSS_CTX_ESTABLISHED,
-    } state;
-    char *user;
-} *gss_conn_ctx;
-
-void
-gss_log(const char *file, int line, int level, int status,
-        const request_rec *r, const char *fmt, ...);
-
-apr_status_t
-cleanup_conn_ctx(void *data);
-
-gss_conn_ctx
-gss_get_conn_ctx(request_rec *r);
-
-void *
-gss_config_dir_create(apr_pool_t *p, char *d);
-
-static const char *
-get_gss_error(request_rec *r, OM_uint32 err_maj, OM_uint32 err_min, char *prefix);
+#include <gss.h>
 
 static int
-get_gss_creds(request_rec *r, gss_auth_config *conf, gss_cred_id_t *server_creds);
+gssweb_authenticate_user(request_rec *r);
 
-static int
-cmp_gss_type(gss_buffer_t token, gss_OID oid);
-
-int
-gssweb_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
-                 const char *auth_line, char **negotiate_ret_value);
 #endif
