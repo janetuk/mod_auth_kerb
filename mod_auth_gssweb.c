@@ -158,7 +158,7 @@ static int gssweb_get_post_data(request_rec *r, int *nonce, gss_buffer_desc *inp
     return DECLINED;
   }
   else {
-    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: returning nonce (%d) and token (%s)", *nonce, input_token->value);
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: returning nonce (%d) and token (%d bytes)", *nonce, input_token->length);
     return OK;
   }
 }
@@ -170,69 +170,121 @@ static int gssweb_get_post_data(request_rec *r, int *nonce, gss_buffer_desc *inp
  * one filter call by maintaining state until an EOS bucket is received.
  */
 static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
-                                        apr_bucket_brigade *pbbIn)
+                                        apr_bucket_brigade *brig_in)
 {
-  apr_status_t ret = 0;
-
   gss_log(APLOG_MARK, APLOG_DEBUG, 0, f->r, "Entering GSSWeb filter");
 
-#if 0
   request_rec *r = f->r;
   conn_rec *c = r->connection;
-  apr_bucket *pbktIn;
-  apr_bucket_brigade *pbbOut;
+  apr_bucket_brigade *brig_out;
+  apr_bucket *bkt_in = NULL;
+  apr_bucket *bkt_out = NULL;
+  apr_bucket *bkt_eos = NULL;
+  const char *data = NULL;
+  apr_size_t len = 0;
+  char *buf = NULL;
+  apr_size_t n = 0;
+  apr_status_t ret = 0;
 
-  pbbOut=apr_brigade_create(r->pool, c->bucket_alloc);
-  for (pbktIn = APR_BRIGADE_FIRST(pbbIn);
-       pbktIn != APR_BRIGADE_SENTINEL(pbbIn);
-       pbktIn = APR_BUCKET_NEXT(pbktIn))
+  /* get the context from the request */
+
+  /* if this is the first call for this response, send JSON block */
+
+  if (first call) {
+    if (NULL = (brig_out = apr_brigade_create(r->pool, c->bucket_alloc))) {
+      // indicate processing error
+      apr_brigade_cleanup(brig_in);
+      return ??;
+    }
+    
+    //create and send opening JSON block
+    
+    if (?? != (ret = ap_pass_brigade(f->next,pbbOut))) {
+      // indicate a processing error
+      apr_brigade_cleanup(brig_in);
+      apr_brigade_cleanup(brig_out);
+      return ret;
+    }
+  }
+
+  /* loop through the buckets, escaping and sending each one */
+  for (bkt_in = APR_BRIGADE_FIRST(brig_in);
+       bkt_in != APR_BRIGADE_SENTINEL(brig_in);
+       bkt_in = APR_BUCKET_NEXT(bkt_in))
     {
-      const char *data;
-      apr_size_t len;
-      char *buf;
-      apr_size_t n;
-      apr_bucket *pbktOut;
+      brig_out = apr_brigade_create(r->pool, c->bucket_alloc);
 
-      if(APR_BUCKET_IS_EOS(pbktIn))
+      /* if this is an EOS, send the JSON closing block */
+      if(APR_BUCKET_IS_EOS(bkt_in))
 	{
-	  apr_bucket *pbktEOS=apr_bucket_eos_create(c->bucket_alloc);
-	  APR_BRIGADE_INSERT_TAIL(pbbOut,pbktEOS);
+	  // create and send the JSON closing block
+
+	  // flag that the next filter call will be a new response 
+
+	  /* set EOS in the outbound brigade */
+	  bkt_eos = apr_bucket_eos_create(c->bucket_alloc);
+	  APR_BRIGADE_INSERT_TAIL (brig_out, bkt_eos);
+
+	  /* pass the brigade */
+	  if (?? != (ret = ap_pass_brigade(f->next, bkt_out))) {
+	    // indicate a processing error
+	    apr_brigade_cleanup(brig_in);
+	    apr_brigade_cleanup(brig_out);
+	    return ret;
+	  }
 	  continue;
 	}
 
       /* read */
-      apr_bucket_read(pbktIn,&data,&len,APR_BLOCK_READ);
+      apr_bucket_read(bkt_in, &data, &len, APR_BLOCK_READ);
 
       /* write */
       buf = apr_bucket_alloc(len, c->bucket_alloc);
-      for(n=0 ; n < len ; ++n)
-	buf[n] = apr_toupper(data[n]);
-
-      pbktOut = apr_bucket_heap_create(buf, len, apr_bucket_free,
+      bkt_out = apr_bucket_heap_create(buf, len, apr_bucket_free,
 				       c->bucket_alloc);
-      APR_BRIGADE_INSERT_TAIL(pbbOut,pbktOut);
+
+      for(n=0 ; n < len ; ++n) {
+	// escape quotes
+      }
+
+      APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
+      if (?? == (ret = ap_pass_brigade(f->next, bkt_out))) {
+	apr_brigade_cleanup(brig_in);
+	apr_brigade_cleanup(brig_out);
+	return ret;
+      }
     }
 
-  /* Q: is there any advantage to passing a brigade for each bucket? 
-   * A: obviously, it can cut down server resource consumption, if this
-   * experimental module was fed a file of 4MB, it would be using 8MB for
-   * the 'read' buckets and the 'write' buckets.
-   *
-   * Note it is more efficient to consume (destroy) each bucket as it's
-   * processed above than to do a single cleanup down here.  In any case,
-   * don't let our caller pass the same buckets to us, twice;
-   */
-  apr_brigade_cleanup(pbbIn);
-  return ap_pass_brigade(f->next,pbbOut);
-#endif
+  apr_brigade_cleanup(brig_in);
   return ret;
+}
+
+/* gssweb_add_filter() -- Hook to add our output filter to the request
+ * (r). Called for all error responses through the
+ * gssweb_insert_error_filter hook.
+ */
+static void
+gssweb_add_filter(request_rec *r) 
+{
+  gss_conn_ctx conn_ctx = NULL;
+
+  /* Get the context for this request */
+  conn_ctx = gss_get_conn_ctx(r);
+  if (conn_ctx == NULL) {
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_add_filter: Failed to find or create internal context.");
+    return;
+  }
+
+  /* Add the output filter */
+  ap_add_output_filter("gssweb_auth_filter", (void *)conn_ctx, r, r->connection);
+  return;
 }
 
 /* gssweb_authenticate_user() -- Hook to perform actual user
  * authentication.  Will be called once for each round trip in the GSS
  * authentication loop.  Reads the tokend from the request, calls
  * gss_accept_sec_context(), and stores the output token and context
- * in the user data area. Registers output filter to send the GSS
+ * in the user data areas.  Adds output filter to send the GSS
  * output token back to the client.
  */
 static int
@@ -262,7 +314,7 @@ gssweb_authenticate_user(request_rec *r)
   type = ap_auth_type(r);
   if (type == NULL || strcasecmp(type, "GSSWeb") != 0) {
         gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
-		"AuthType '%s' is not GSSWeb, bailing out",
+		"gssweb_authenticate_user: AuthType '%s' is not GSSWeb, bailing out",
 		(type) ? type : "(NULL)");
 
         return DECLINED;
@@ -271,17 +323,17 @@ gssweb_authenticate_user(request_rec *r)
   /* Set up a GSS context for this request, if there isn't one already */
   conn_ctx = gss_get_conn_ctx(r);
   if (conn_ctx == NULL) {
-    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "Failed to create internal context: probably not enough memory");
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_user: Failed to create internal context");
     return HTTP_INTERNAL_SERVER_ERROR;
   }
 
   /* Read the token and nonce from the POST */
   if (0 != gssweb_get_post_data(r, &nonce, &input_token)) {
     ret = HTTP_UNAUTHORIZED;
-    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "Unable to read nonce or input token.");
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_user: Unable to read nonce or input token.");
     goto end;
   }
-  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "GSSWeb nonce value = %u.", nonce);
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: GSSWeb nonce value = %u.", nonce);
    
   /* If the nonce is set and doesn't match, start over */
   if ((0 != conn_ctx->nonce) && (conn_ctx->nonce != nonce)) {
@@ -300,26 +352,20 @@ gssweb_authenticate_user(request_rec *r)
   if (GSS_CTX_ERROR == conn_ctx->state) {
     ret = HTTP_INTERNAL_SERVER_ERROR;
     gss_log(APLOG_MARK, APLOG_ERR, 0, r,
-	    "Output filter returned internal server error, reporting.");
+	    "gssweb_authenticate_user: Output filter returned internal server error, reporting.");
     goto end;
   }
 
-  /* If this is a new authentiction cycle, set-up the output filter. */
-  if (GSS_CTX_EMPTY == conn_ctx->state)
- {
-   ap_add_output_filter("gssweb_auth_filter",conn_ctx->context,r,r->connection);
-   ap_register_output_filter("gssweb_auth_filter",gssweb_authenticate_filter, NULL, AP_FTYPE_RESOURCE);
-  }
+  /* Set-up the output filter (TBD -- register this once?) */
+  ap_register_output_filter("gssweb_auth_filter", gssweb_authenticate_filter, NULL, AP_FTYPE_RESOURCE);
+  ap_add_output_filter("gssweb_auth_filter", (void *)conn_ctx, r, r->connection);
 
-  /* Acquire server credentials */
+  /* Acquire server credentials (TBD -- do this once?) */
   ret = get_gss_creds(r, conf, &server_creds);
   if (ret)
     goto end;
-  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate: Server credentials acquired.");
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Server credentials acquired.");
     
-  /* Decode input token */
-  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate: Output token decoded, calling gss_accept_sec_context().");
-
   /* Call gss_accept_sec_context */
   major_status = gss_accept_sec_context(&minor_status,
 					&conn_ctx->context,
@@ -333,22 +379,22 @@ gssweb_authenticate_user(request_rec *r)
 					NULL,
 					&delegated_cred);
   gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
-	  "Client %s us their credential",
+	  "gssweb_authenticate_user: Client %s us their credential",
 	  (ret_flags & GSS_C_DELEG_FLAG) ? "delegated" : "didn't delegate");
 
   if (GSS_ERROR(major_status)) {
     gss_log(APLOG_MARK, APLOG_ERR, 0, r,
 	    "%s", get_gss_error(r, major_status, minor_status,
-				"Failed to establish authentication"));
+				"gssweb_authenticate_user: Failed to establish authentication"));
     gss_delete_sec_context(&minor_status, &conn_ctx->context, GSS_C_NO_BUFFER);
     conn_ctx->context = GSS_C_NO_CONTEXT;
     conn_ctx->state = GSS_CTX_EMPTY;
     ret = HTTP_UNAUTHORIZED;
     goto end;
-    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate: Decoding ouput token.");
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Decoding ouput token.");
   }
 
-  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate: Got sec context, storing nonce and output token.");
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Got sec context, storing nonce and output token.");
 
   /* Store the nonce & ouput token in the stored context */
   conn_ctx->nonce = nonce;
@@ -386,6 +432,7 @@ static void
 gssweb_register_hooks(apr_pool_t *p)
 {
     ap_hook_check_user_id(gssweb_authenticate_user, NULL, NULL, APR_HOOK_MIDDLE);
+    ap_hook_insert_error_filter(gssweb_add_filter, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
 module AP_MODULE_DECLARE_DATA auth_gssweb_module = {
