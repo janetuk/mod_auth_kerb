@@ -185,11 +185,10 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
   apr_size_t len = 0;
   char *buf = NULL;
   char *stoken = NULL;
-  apr_size_t n = 0;
+  apr_size_t n = 0, i = 0;
   gss_conn_ctx conn_ctx = NULL;
   const char *c_type = NULL;
   const char *c_len = NULL;
-
   apr_status_t ret = 0;
 
   /* get the context from the request */
@@ -225,8 +224,10 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 
     apr_base64_encode_binary(stoken, conn_ctx->output_token.value, conn_ctx->output_token.length);
     snprintf((char *)data, len+1024, 
-	     "{gssweb: {\ntoken: \"%s\",\nnonce: \"%d\"},\n application: {\ndata: \"", 
+	     "{\"gssweb\": {\n\"token\": \"%s\",\n\"nonce\": \"%d\"},\n\"application\": {\n\"data\": \"", 
 	     stoken, conn_ctx->nonce);
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending: %s", data);
+    
     bkt_out = apr_bucket_heap_create(data, strlen(data), apr_bucket_free,
 				     c->bucket_alloc);
     APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
@@ -265,7 +266,9 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 
 	  c_type = apr_table_get(r->headers_in, "Content-Type");
           c_len = apr_table_get(r->headers_in, "Content-Length");
-	  snprintf((char *)data, 1024, "\"\ncontent-type: \"%s,\ncontent-length: \"%s\"\n}\n}", c_type, c_len);
+	  snprintf((char *)data, 1024, "\"\n\"content-type\": \"%s,\n\"content-length\": \"%s\"\n}\n}", c_type, c_len);
+	  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending: %s", data);
+
 	  bkt_out = apr_bucket_heap_create(data, strlen(data), apr_bucket_free,
 					   c->bucket_alloc);
 	  APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
@@ -278,6 +281,7 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 	  APR_BRIGADE_INSERT_TAIL (brig_out, bkt_eos);
 	  
 	  /* pass the brigade */
+	  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending: EOS");
 	  if (0 != (ret = ap_pass_brigade(f->next, brig_out))) {
 	    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to pass output brigade (eos)");
 	    conn_ctx->filter_stat = GSS_FILT_ERROR;
@@ -285,34 +289,38 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 	    apr_brigade_cleanup(brig_out);
 	    return ret;
 	  }
-	  continue;
+	  break;
 	}
 
       /* Read application data from each input bucket */
       apr_bucket_read(bkt_in, &data, &len, APR_BLOCK_READ);
+      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Application Data (%d bytes): %s", len, data);
 
-      /* Write data to an output brigade, escaping quotes */
-      for(n=0 ; n < len ; ++n) {
-	if ('"' == data[n]) {
-	  /* Write n bytes of app data */
-	  buf = apr_bucket_alloc(n, c->bucket_alloc);
-	  bkt_out = apr_bucket_heap_create(buf, n, apr_bucket_free,
-					   c->bucket_alloc);
-	  APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
-	  
-	  /* Write the escaped quote character */
-	  buf = apr_bucket_alloc(3, c->bucket_alloc);
-	  bkt_out = apr_bucket_heap_create("\\\"", 2, NULL, c->bucket_alloc);
-	  APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
-
-	  /* Process remaining data */
-	  buf = &buf[n];
-	  len = len - n;
-	  n = 0;
-	}
+      if (NULL == (buf = apr_bucket_alloc(len*2+1, c->bucket_alloc))) {
+	gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate space for application data");
+	apr_brigade_cleanup(brig_in);
+	apr_brigade_cleanup(brig_out);
+	return HTTP_INTERNAL_SERVER_ERROR;
       }
 
+      /* Write data to an output brigade, escaping quotes */
+      for(n=0, i=0; n < len, i < 2*len ; n++) {
+	if ('"' != data[n]) {
+	  buf[i++] = data[n];
+	} else {
+	  /* Write the escaped quote character */
+	  buf[i++] = '\\';
+	  buf[i++] = '"';
+	  /* Skip the quote character */
+	}
+      }
+      buf[i] = '\0';
+      bkt_out = apr_bucket_heap_create(buf, i, NULL, c->bucket_alloc);
+      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending: %s", buf);
+      APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
+
       /* Send the output brigade */
+      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Passing the application data brigade");
       if (OK != (ret = ap_pass_brigade(f->next, brig_out))) {
 	apr_brigade_cleanup(brig_in);
 	apr_brigade_cleanup(brig_out);
