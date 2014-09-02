@@ -50,7 +50,7 @@ my ($url, $gssname) = @ARGV;
 my $www = WWW::Mechanize->new('autocheck' => 0);
 my $done = 0;
 my $response_token = undef;
-unless ($done) {
+   while (!$done) {
 
     $www->post($url, 'Content' => token_body($gssname, $response_token));
     my $status = $www->status();
@@ -66,5 +66,6 @@ unless ($done) {
     } else {
 	print "Unexpected response status: $status\n";
 	print $www->content();
+	      $done = 1;
     }
 }
