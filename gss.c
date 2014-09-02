@@ -72,6 +72,7 @@ gss_get_conn_ctx(request_rec *r)
 	    return NULL;
 	ctx->context = GSS_C_NO_CONTEXT;
 	ctx->state = GSS_CTX_EMPTY;
+	ctx->filter_stat = GSS_FILT_NEW;
 	ctx->user = NULL;
 	apr_pool_userdata_set(ctx, key, cleanup_conn_ctx, r->connection->pool);
     }

@@ -52,6 +52,7 @@
  * described in the protocol.txt file included with module source.
  */
 
+#include <stdio.h>
 #include "mod_auth_gssweb.h"
 
 module AP_MODULE_DECLARE_DATA auth_gssweb_module;
@@ -183,51 +184,103 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
   const char *data = NULL;
   apr_size_t len = 0;
   char *buf = NULL;
+  char *stoken = NULL;
   apr_size_t n = 0;
+  gss_conn_ctx conn_ctx = NULL;
+  const char *c_type = NULL;
+  const char *c_len = NULL;
+
   apr_status_t ret = 0;
 
   /* get the context from the request */
+  conn_ctx = gss_get_conn_ctx(r);
+  if ((NULL == conn_ctx) || 
+      (GSS_C_NO_CONTEXT == conn_ctx->context) ||
+      (GSS_CTX_EMPTY == conn_ctx->state) ||
+      (0 == conn_ctx->output_token.length)) {
+    conn_ctx->filter_stat = GSS_FILT_ERROR;
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Failed to find valid context.");
+    apr_brigade_cleanup(brig_in);
+    return HTTP_INTERNAL_SERVER_ERROR;
+  }
+    
+  /* if this is the first call for a response, send opening JSON block */
 
-  /* if this is the first call for this response, send JSON block */
-
-  if (first call) {
-    if (NULL = (brig_out = apr_brigade_create(r->pool, c->bucket_alloc))) {
-      // indicate processing error
+  if (GSS_FILT_NEW == conn_ctx->filter_stat) {
+    if (NULL == (brig_out = apr_brigade_create(r->pool, c->bucket_alloc))) {
+      conn_ctx->filter_stat = GSS_FILT_ERROR;
+      gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate output brigade (opening)");
       apr_brigade_cleanup(brig_in);
-      return ??;
+      return HTTP_INTERNAL_SERVER_ERROR;
     }
-    
-    //create and send opening JSON block
-    
-    if (?? != (ret = ap_pass_brigade(f->next,pbbOut))) {
-      // indicate a processing error
+
+    len = apr_base64_encode_len(conn_ctx->output_token.length);
+    if (NULL == (data = apr_bucket_alloc(len+1024, c->bucket_alloc)) ||
+	NULL == (stoken = apr_bucket_alloc(len+1, c->bucket_alloc))) {
+      gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate space for opening json block");
+      apr_brigade_cleanup(brig_in);
+      apr_brigade_cleanup(brig_out);
+      return HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    apr_base64_encode_binary(stoken, conn_ctx->output_token.value, conn_ctx->output_token.length);
+    snprintf((char *)data, len+1024, 
+	     "{gssweb: {\ntoken: \"%s\",\nnonce: \"%d\"},\n application: {\ndata: \"", 
+	     stoken, conn_ctx->nonce);
+    bkt_out = apr_bucket_heap_create(data, strlen(data), apr_bucket_free,
+				     c->bucket_alloc);
+    APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
+    if (0 != (ret = ap_pass_brigade(f->next, brig_out))) {
       apr_brigade_cleanup(brig_in);
       apr_brigade_cleanup(brig_out);
       return ret;
     }
+
+    conn_ctx->filter_stat = GSS_FILT_INPROGRESS;
   }
 
-  /* loop through the buckets, escaping and sending each one */
+  /* loop through the app data buckets, escaping and sending each one */
   for (bkt_in = APR_BRIGADE_FIRST(brig_in);
        bkt_in != APR_BRIGADE_SENTINEL(brig_in);
        bkt_in = APR_BUCKET_NEXT(bkt_in))
     {
-      brig_out = apr_brigade_create(r->pool, c->bucket_alloc);
+      if (NULL == (brig_out = apr_brigade_create(r->pool, c->bucket_alloc))) {
+	    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate brigade (loop)");
+	    conn_ctx->filter_stat = GSS_FILT_ERROR;
+	    apr_brigade_cleanup(brig_in);
+	    return HTTP_INTERNAL_SERVER_ERROR;
+      }
 
       /* if this is an EOS, send the JSON closing block */
       if(APR_BUCKET_IS_EOS(bkt_in))
 	{
-	  // create and send the JSON closing block
+	  /* create and add the JSON closing block */
+	  
+	  if (NULL == (data = apr_bucket_alloc(1024, c->bucket_alloc))) {
+	      gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate space for closing json block");
+	      apr_brigade_cleanup(brig_in);
+	      apr_brigade_cleanup(brig_out);
+	      return HTTP_INTERNAL_SERVER_ERROR;
+	  }
 
-	  // flag that the next filter call will be a new response 
+	  c_type = apr_table_get(r->headers_in, "Content-Type");
+          c_len = apr_table_get(r->headers_in, "Content-Length");
+	  snprintf((char *)data, 1024, "\"\ncontent-type: \"%s,\ncontent-length: \"%s\"\n}\n}", c_type, c_len);
+	  bkt_out = apr_bucket_heap_create(data, strlen(data), apr_bucket_free,
+					   c->bucket_alloc);
+	  APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
 
+	  /* Indicate that the next filter call is a new response */
+	  conn_ctx->filter_stat = GSS_FILT_NEW;
+	  
 	  /* set EOS in the outbound brigade */
 	  bkt_eos = apr_bucket_eos_create(c->bucket_alloc);
 	  APR_BRIGADE_INSERT_TAIL (brig_out, bkt_eos);
-
+	  
 	  /* pass the brigade */
-	  if (?? != (ret = ap_pass_brigade(f->next, bkt_out))) {
-	    // indicate a processing error
+	  if (0 != (ret = ap_pass_brigade(f->next, brig_out))) {
+	    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to pass output brigade (eos)");
+	    conn_ctx->filter_stat = GSS_FILT_ERROR;
 	    apr_brigade_cleanup(brig_in);
 	    apr_brigade_cleanup(brig_out);
 	    return ret;
@@ -235,26 +288,39 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 	  continue;
 	}
 
-      /* read */
+      /* Read application data from each input bucket */
       apr_bucket_read(bkt_in, &data, &len, APR_BLOCK_READ);
 
-      /* write */
-      buf = apr_bucket_alloc(len, c->bucket_alloc);
-      bkt_out = apr_bucket_heap_create(buf, len, apr_bucket_free,
-				       c->bucket_alloc);
-
+      /* Write data to an output brigade, escaping quotes */
       for(n=0 ; n < len ; ++n) {
-	// escape quotes
+	if ('"' == data[n]) {
+	  /* Write n bytes of app data */
+	  buf = apr_bucket_alloc(n, c->bucket_alloc);
+	  bkt_out = apr_bucket_heap_create(buf, n, apr_bucket_free,
+					   c->bucket_alloc);
+	  APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
+	  
+	  /* Write the escaped quote character */
+	  buf = apr_bucket_alloc(3, c->bucket_alloc);
+	  bkt_out = apr_bucket_heap_create("\\\"", 2, NULL, c->bucket_alloc);
+	  APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
+
+	  /* Process remaining data */
+	  buf = &buf[n];
+	  len = len - n;
+	  n = 0;
+	}
       }
 
-      APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
-      if (?? == (ret = ap_pass_brigade(f->next, bkt_out))) {
+      /* Send the output brigade */
+      if (OK != (ret = ap_pass_brigade(f->next, brig_out))) {
 	apr_brigade_cleanup(brig_in);
 	apr_brigade_cleanup(brig_out);
 	return ret;
       }
     }
 
+  /* Make sure we don't see the same data again */
   apr_brigade_cleanup(brig_in);
   return ret;
 }
@@ -294,7 +360,6 @@ gssweb_authenticate_user(request_rec *r)
     (gss_auth_config *) ap_get_module_config(r->per_dir_config,
 						&auth_gssweb_module);
   const char *auth_line = NULL;
-  const char *type = NULL;
   char *auth_type = NULL;
   char *negotiate_ret_value = NULL;
   gss_conn_ctx conn_ctx = NULL;
@@ -311,11 +376,11 @@ gssweb_authenticate_user(request_rec *r)
   gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "Entering GSSWeb authentication");
    
   /* Check if this is for our auth type */
-  type = ap_auth_type(r);
-  if (type == NULL || strcasecmp(type, "GSSWeb") != 0) {
+  auth_type = (char *)ap_auth_type(r);
+  if (auth_type == NULL || strcasecmp(auth_type, "GSSWeb") != 0) {
         gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
 		"gssweb_authenticate_user: AuthType '%s' is not GSSWeb, bailing out",
-		(type) ? type : "(NULL)");
+		(auth_type) ? auth_type : "(NULL)");
 
         return DECLINED;
   }
@@ -342,17 +407,19 @@ gssweb_authenticate_user(request_rec *r)
     }
     conn_ctx->context = GSS_C_NO_CONTEXT;
     conn_ctx->state = GSS_CTX_EMPTY;
+    conn_ctx->filter_stat = GSS_FILT_NEW;
     conn_ctx->user = NULL;
     if (0 != conn_ctx->output_token.length) {
       gss_release_buffer(&minor_status, &(conn_ctx->output_token));
     }
+    conn_ctx->output_token.length = 0;
   }
  
   /* If the output filter reported an internal server error, return it */
-  if (GSS_CTX_ERROR == conn_ctx->state) {
+  if (GSS_FILT_ERROR == conn_ctx->filter_stat) {
     ret = HTTP_INTERNAL_SERVER_ERROR;
     gss_log(APLOG_MARK, APLOG_ERR, 0, r,
-	    "gssweb_authenticate_user: Output filter returned internal server error, reporting.");
+	    "gssweb_authenticate_user: Output filter returned error, reporting.");
     goto end;
   }
 
