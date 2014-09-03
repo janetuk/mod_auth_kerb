@@ -86,7 +86,7 @@ static int gssweb_read_req(request_rec *r, const char **rbuf, apr_off_t *size)
 
     char         argsbuffer[HUGE_STRING_LEN];
     apr_off_t    rsize, len_read, rpos = 0;
-    apr_off_t length = r->remaining;
+    apr_off_t    length = r->remaining;
 
     *rbuf = (const char *) apr_pcalloc(r->pool, (apr_size_t) (length + 1));
     *size = length;
@@ -173,8 +173,6 @@ static int gssweb_get_post_data(request_rec *r, int *nonce, gss_buffer_desc *inp
 static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
                                         apr_bucket_brigade *brig_in)
 {
-  gss_log(APLOG_MARK, APLOG_DEBUG, 0, f->r, "Entering GSSWeb filter");
-
   request_rec *r = f->r;
   conn_rec *c = r->connection;
   apr_bucket_brigade *brig_out;
@@ -192,20 +190,17 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
   const char *c_len = NULL;
   apr_status_t ret = 0;
 
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, f->r, "Entering GSSWeb filter");
+
   /* get the context from the request */
-  conn_ctx = gss_get_conn_ctx(r);
-  if ((NULL == conn_ctx) || 
-      (GSS_C_NO_CONTEXT == conn_ctx->context) ||
-      (GSS_CTX_EMPTY == conn_ctx->state) ||
-      (0 == conn_ctx->output_token.length)) {
-    conn_ctx->filter_stat = GSS_FILT_ERROR;
+  conn_ctx = gss_retrieve_conn_ctx(r);
+  if (NULL == conn_ctx) {
     gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Failed to find valid context.");
     apr_brigade_cleanup(brig_in);
     return HTTP_INTERNAL_SERVER_ERROR;
   }
     
   /* if this is the first call for a response, send opening JSON block */
-
   if (GSS_FILT_NEW == conn_ctx->filter_stat) {
     if (NULL == (brig_out = apr_brigade_create(r->pool, c->bucket_alloc))) {
       conn_ctx->filter_stat = GSS_FILT_ERROR;
@@ -227,7 +222,7 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
     snprintf((char *)data, len+1024, 
 	     "{\"gssweb\": {\n\"token\": \"%s\",\n\"nonce\": \"%d\"},\n\"application\": {\n\"data\": \"", 
 	     stoken, conn_ctx->nonce);
-    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending: %s", data);
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending (%d bytes): %s", strlen(data), data);
     
     bkt_out = apr_bucket_heap_create(data, strlen(data), apr_bucket_free,
 				     c->bucket_alloc);
@@ -304,11 +299,12 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 	apr_brigade_cleanup(brig_out);
 	return HTTP_INTERNAL_SERVER_ERROR;
       }
-      apr_base64_encode_binary(buf, data, len);
+      enc_len = apr_base64_encode_binary(buf, data, len);
 
       /* Put the data in a bucket and add it to the the output brigade */
-      bkt_out = apr_bucket_heap_create(buf, enc_len, NULL, c->bucket_alloc);
-      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending %d bytes", enc_len);
+      bkt_out = apr_bucket_heap_create(buf, enc_len-1, apr_bucket_free, c->bucket_alloc);
+      buf[enc_len] = '\0';
+      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending (%d bytes):", enc_len, buf);
       APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
 
       /* Send the output brigade */
@@ -322,7 +318,7 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 
   /* Make sure we don't see the same data again */
   apr_brigade_cleanup(brig_in);
-  return ret;
+  return OK;
 }
 
 /* gssweb_add_filter() -- Hook to add our output filter to the request
@@ -334,12 +330,8 @@ gssweb_add_filter(request_rec *r)
 {
   gss_conn_ctx conn_ctx = NULL;
 
-  /* Get the context for this request */
-  conn_ctx = gss_get_conn_ctx(r);
-  if (conn_ctx == NULL) {
-    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_add_filter: Failed to find or create internal context.");
-    return;
-  }
+  /* Get the context for this request, if any */
+  conn_ctx = gss_retrieve_conn_ctx(r);
 
   /* Add the output filter */
   ap_add_output_filter("gssweb_auth_filter", (void *)conn_ctx, r, r->connection);
@@ -356,9 +348,6 @@ gssweb_add_filter(request_rec *r)
 static int
 gssweb_authenticate_user(request_rec *r) 
 {
-  gss_auth_config *conf = 
-    (gss_auth_config *) ap_get_module_config(r->per_dir_config,
-						&auth_gssweb_module);
   const char *auth_line = NULL;
   char *auth_type = NULL;
   char *negotiate_ret_value = NULL;
@@ -369,52 +358,57 @@ gssweb_authenticate_user(request_rec *r)
   gss_buffer_desc output_token = GSS_C_EMPTY_BUFFER;
   gss_name_t client_name = GSS_C_NO_NAME;
   gss_cred_id_t delegated_cred = GSS_C_NO_CREDENTIAL;
-  gss_cred_id_t server_creds = GSS_C_NO_CREDENTIAL;
   OM_uint32 ret_flags = 0;
   unsigned int nonce;
+  int release_output_token = 1;
+  gss_auth_config *conf = NULL;
 
   gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "Entering GSSWeb authentication");
-   
+
+  /* Get the module configuration */
+  conf = (gss_auth_config *) ap_get_module_config(r->per_dir_config,
+						  &auth_gssweb_module);
+
   /* Check if this is for our auth type */
   auth_type = (char *)ap_auth_type(r);
   if (auth_type == NULL || strcasecmp(auth_type, "GSSWeb") != 0) {
         gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
 		"gssweb_authenticate_user: AuthType '%s' is not GSSWeb, bailing out",
 		(auth_type) ? auth_type : "(NULL)");
-
-        return DECLINED;
-  }
-
-  /* Set up a GSS context for this request, if there isn't one already */
-  conn_ctx = gss_get_conn_ctx(r);
-  if (conn_ctx == NULL) {
-    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_user: Failed to create internal context");
-    return HTTP_INTERNAL_SERVER_ERROR;
+        ret = DECLINED;
+	goto end;
   }
 
   /* Read the token and nonce from the POST */
   if (0 != gssweb_get_post_data(r, &nonce, &input_token)) {
-    ret = HTTP_UNAUTHORIZED;
     gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_user: Unable to read nonce or input token.");
+    ret = HTTP_UNAUTHORIZED;
     goto end;
   }
   gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: GSSWeb nonce value = %u.", nonce);
-   
-  /* If the nonce is set and doesn't match, start over */
-  if ((0 != conn_ctx->nonce) && (conn_ctx->nonce != nonce)) {
-    if (GSS_C_NO_CONTEXT != conn_ctx->context) {
-      gss_delete_sec_context(&minor_status, &conn_ctx->context, GSS_C_NO_BUFFER);
+
+  /* Retrieve the existing context (if any) and see if it matches this request */
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Attempting to retrieve GSS context");
+  conn_ctx = gss_retrieve_conn_ctx(r);
+
+  /* If there is no matching context, create a new one */
+  if ((NULL == conn_ctx) || 
+      (conn_ctx->nonce != nonce)) {
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Creating a new GSS context");
+    if (conn_ctx)
+      gss_cleanup_conn_ctx(conn_ctx);
+    if (NULL == (conn_ctx = gss_create_conn_ctx (r, conf))) {
+      gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_user: Failed to create GSS context");
+      ret = HTTP_INTERNAL_SERVER_ERROR;
+      goto end;
     }
-    conn_ctx->context = GSS_C_NO_CONTEXT;
-    conn_ctx->state = GSS_CTX_EMPTY;
-    conn_ctx->filter_stat = GSS_FILT_NEW;
-    conn_ctx->user = NULL;
-    if (0 != conn_ctx->output_token.length) {
-      gss_release_buffer(&minor_status, &(conn_ctx->output_token));
-    }
-    conn_ctx->output_token.length = 0;
   }
- 
+
+  if (NULL == conn_ctx) {
+      gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_user: ERROR -- no GSS context");
+      goto end;
+  }
+
   /* If the output filter reported an internal server error, return it */
   if (GSS_FILT_ERROR == conn_ctx->filter_stat) {
     ret = HTTP_INTERNAL_SERVER_ERROR;
@@ -423,19 +417,13 @@ gssweb_authenticate_user(request_rec *r)
     goto end;
   }
 
-  /* Add the output filter to this request. */
+  /* Add the output filter to this request (only applies to non-error returns) */
   ap_add_output_filter("gssweb_auth_filter", (void *)conn_ctx, r, r->connection);
 
-  /* Acquire server credentials (TBD -- do this once?) */
-  ret = get_gss_creds(r, conf, &server_creds);
-  if (ret)
-    goto end;
-  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Server credentials acquired.");
-    
   /* Call gss_accept_sec_context */
   major_status = gss_accept_sec_context(&minor_status,
 					&conn_ctx->context,
-					server_creds,
+					conn_ctx->server_creds,
 					&input_token,
 					GSS_C_NO_CHANNEL_BINDINGS,
 					NULL,
@@ -447,7 +435,11 @@ gssweb_authenticate_user(request_rec *r)
   gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
 	  "gssweb_authenticate_user: Client %s us their credential",
 	  (ret_flags & GSS_C_DELEG_FLAG) ? "delegated" : "didn't delegate");
-  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: First four bytes of output token are: %.2x %.2x %.2x %.2x", ((char *)output_token.value)[0], ((char *)output_token.value)[1], ((char *)output_token.value)[2], ((char *)output_token.value)[3]);
+  if (output_token.length >= 4) {
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: First four bytes of output token are: %.2x %.2x %.2x %.2x", ((char *)output_token.value)[0], ((char *)output_token.value)[1], ((char *)output_token.value)[2], ((char *)output_token.value)[3]);
+  } else {
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: No output token");
+  }
  
   if (GSS_ERROR(major_status)) {
     gss_log(APLOG_MARK, APLOG_ERR, 0, r,
@@ -466,8 +458,8 @@ gssweb_authenticate_user(request_rec *r)
   /* Store the nonce & ouput token in the stored context */
   conn_ctx->nonce = nonce;
   conn_ctx->output_token = output_token;
-  output_token.length = 0;
-    
+  release_output_token = 0;
+
   /* If we aren't done yet, go around again */
   if (major_status & GSS_S_CONTINUE_NEEDED) {
     conn_ctx->state = GSS_CTX_IN_PROGRESS;
@@ -484,14 +476,11 @@ gssweb_authenticate_user(request_rec *r)
   if (delegated_cred)
     gss_release_cred(&minor_status, &delegated_cred);
   
-  if (output_token.length) 
+  if ((release_output_token) && (output_token.length))
     gss_release_buffer(&minor_status, &output_token);
     
   if (client_name != GSS_C_NO_NAME)
     gss_release_name(&minor_status, &client_name);
-
-  if (server_creds != GSS_C_NO_CREDENTIAL)
-    gss_release_cred(&minor_status, &server_creds);
 
   return ret;
 }

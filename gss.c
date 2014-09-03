@@ -46,37 +46,63 @@ gss_log(const char *file, int line, int level, int status,
 }
 
 apr_status_t
-cleanup_conn_ctx(void *data)
+gss_cleanup_conn_ctx(void *data)
 {
     gss_conn_ctx ctx = (gss_conn_ctx) data;
     OM_uint32 minor_status;
 
     if (ctx && ctx->context != GSS_C_NO_CONTEXT)
 	gss_delete_sec_context(&minor_status, &ctx->context, GSS_C_NO_BUFFER);
+  
+    if (ctx && ctx->server_creds != GSS_C_NO_CREDENTIAL)
+      gss_release_cred(&minor_status, &ctx->server_creds);
 
     return APR_SUCCESS;
 }
 
 gss_conn_ctx
-gss_get_conn_ctx(request_rec *r)
+gss_create_conn_ctx(request_rec *r, gss_auth_config *conf)
 {
-    char key[1024];
-    gss_conn_ctx ctx = NULL;
+  char key[1024];
+  gss_conn_ctx ctx = NULL;
+ 
+  snprintf(key, sizeof(key), "mod_auth_gssweb:conn_ctx");
+  
+  if (NULL == (ctx = (gss_conn_ctx) apr_palloc(r->connection->pool, sizeof(*ctx)))) {
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gss_create_conn_ctx: Can't allocate GSS context");
+    return NULL;
+  }
+  ctx->context = GSS_C_NO_CONTEXT;
+  ctx->state = GSS_CTX_EMPTY;
+  ctx->filter_stat = GSS_FILT_NEW;
+  ctx->user = NULL;
 
-    snprintf(key, sizeof(key), "mod_auth_gssweb:conn_ctx");
-    apr_pool_userdata_get((void **)&ctx, key, r->connection->pool);
-    /* XXX LOG */
-    if (ctx == NULL) {
-	ctx = (gss_conn_ctx) apr_palloc(r->connection->pool, sizeof(*ctx));
-	if (ctx == NULL)
-	    return NULL;
-	ctx->context = GSS_C_NO_CONTEXT;
-	ctx->state = GSS_CTX_EMPTY;
-	ctx->filter_stat = GSS_FILT_NEW;
-	ctx->user = NULL;
-	apr_pool_userdata_set(ctx, key, cleanup_conn_ctx, r->connection->pool);
-    }
-    return ctx;
+  /* Acquire and store server credentials */
+  if (0 == get_gss_creds(r, conf, &(ctx->server_creds))) {
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gss_create_conn_ctx: Server credentials acquired");
+  } else {
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gss_create_conn_ctx: Error: Server credentials NOT acquired");
+    return NULL;
+  }
+
+  apr_pool_userdata_set(ctx, key, gss_cleanup_conn_ctx, r->connection->pool);
+
+  return ctx;
+}
+
+gss_conn_ctx
+gss_retrieve_conn_ctx(request_rec *r)
+{
+  char key[1024];
+  gss_conn_ctx ctx = NULL;
+ 
+  snprintf(key, sizeof(key), "mod_auth_gssweb:conn_ctx");
+  apr_pool_userdata_get((void **)&ctx, key, r->connection->pool);
+
+  if (NULL == ctx)
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gss_retrieve_conn_ctx: No GSS context found");
+
+  return ctx;
 }
 
 void *

@@ -108,10 +108,6 @@ gss_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
 #endif
   }
 
-  ret = get_gss_creds(r, conf, &server_creds);
-  if (ret)
-     goto end;
-
   /* ap_getword() shifts parameter */
   auth_param = ap_getword_white(r->pool, &auth_line);
   if (auth_param == NULL) {
@@ -290,8 +286,8 @@ gss_authenticate_user(request_rec *r)
         return HTTP_UNAUTHORIZED;
     }
 
-    conn_ctx = gss_get_conn_ctx(r);
-    if (conn_ctx == NULL) {
+    if ((NULL == (conn_ctx = gss_retrieve_conn_ctx(r))) &&
+	(NULL == (conn_ctx = gss_create_conn_ctx(r, conf)))) {
 	gss_log(APLOG_MARK, APLOG_ERR, 0, r,
 		"Failed to create internal context: probably not enough memory");
 	return HTTP_INTERNAL_SERVER_ERROR;

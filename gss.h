@@ -53,6 +53,7 @@ typedef struct {
 
 typedef struct gss_conn_ctx_t {
   gss_ctx_id_t context;
+  gss_cred_id_t server_creds;
   enum {
     GSS_CTX_EMPTY,
     GSS_CTX_IN_PROGRESS,
@@ -75,10 +76,13 @@ gss_log(const char *file, int line, int level, int status,
         const request_rec *r, const char *fmt, ...);
 
 apr_status_t
-cleanup_conn_ctx(void *data);
+gss_cleanup_conn_ctx(void *data);
 
 gss_conn_ctx
-gss_get_conn_ctx(request_rec *r);
+gss_retrieve_conn_ctx(request_rec *r);
+
+gss_conn_ctx
+gss_create_conn_ctx(request_rec *r, gss_auth_config *conf);
 
 void *
 gss_config_dir_create(apr_pool_t *p, char *d);
