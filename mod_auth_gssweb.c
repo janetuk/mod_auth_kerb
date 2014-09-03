@@ -466,6 +466,7 @@ gssweb_authenticate_user(request_rec *r)
   /* Store the nonce & ouput token in the stored context */
   conn_ctx->nonce = nonce;
   conn_ctx->output_token = output_token;
+  output_token.length = 0;
     
   /* If we aren't done yet, go around again */
   if (major_status & GSS_S_CONTINUE_NEEDED) {
