@@ -183,9 +183,10 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
   apr_bucket *bkt_eos = NULL;
   const char *data = NULL;
   apr_size_t len = 0;
+  apr_size_t enc_len = 0;
   char *buf = NULL;
   char *stoken = NULL;
-  apr_size_t n = 0, i = 0;
+  apr_size_t n = 0;
   gss_conn_ctx conn_ctx = NULL;
   const char *c_type = NULL;
   const char *c_len = NULL;
@@ -266,8 +267,8 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 
 	  c_type = apr_table_get(r->headers_in, "Content-Type");
           c_len = apr_table_get(r->headers_in, "Content-Length");
-	  snprintf((char *)data, 1024, "\"\n\"content-type\": \"%s,\n\"content-length\": \"%s\"\n}\n}", c_type, c_len);
-	  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending: %s", data);
+	  snprintf((char *)data, 1024, "\",\n\"content-type\": \"%s\",\n\"content-length\": \"%s\"\n}\n}", c_type, c_len);
+	  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending (%d bytes) %s", strlen(data), data);
 
 	  bkt_out = apr_bucket_heap_create(data, strlen(data), apr_bucket_free,
 					   c->bucket_alloc);
@@ -283,7 +284,6 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 	  /* pass the brigade */
 	  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending: EOS");
 	  if (0 != (ret = ap_pass_brigade(f->next, brig_out))) {
-	    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to pass output brigade (eos)");
 	    conn_ctx->filter_stat = GSS_FILT_ERROR;
 	    apr_brigade_cleanup(brig_in);
 	    apr_brigade_cleanup(brig_out);
@@ -296,27 +296,19 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
       apr_bucket_read(bkt_in, &data, &len, APR_BLOCK_READ);
       gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Application Data (%d bytes): %s", len, data);
 
-      if (NULL == (buf = apr_bucket_alloc(len*2+1, c->bucket_alloc))) {
+      /* Base64 encode the data */
+      enc_len = apr_base64_encode_len(len);
+      if (NULL == (buf = apr_bucket_alloc(enc_len, c->bucket_alloc))) {
 	gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate space for application data");
 	apr_brigade_cleanup(brig_in);
 	apr_brigade_cleanup(brig_out);
 	return HTTP_INTERNAL_SERVER_ERROR;
       }
+      apr_base64_encode_binary(buf, data, len);
 
-      /* Write data to an output brigade, escaping quotes */
-      for(n=0, i=0; n < len, i < 2*len ; n++) {
-	if ('"' != data[n]) {
-	  buf[i++] = data[n];
-	} else {
-	  /* Write the escaped quote character */
-	  buf[i++] = '\\';
-	  buf[i++] = '"';
-	  /* Skip the quote character */
-	}
-      }
-      buf[i] = '\0';
-      bkt_out = apr_bucket_heap_create(buf, i, NULL, c->bucket_alloc);
-      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending: %s", buf);
+      /* Put the data in a bucket and add it to the the output brigade */
+      bkt_out = apr_bucket_heap_create(buf, enc_len, NULL, c->bucket_alloc);
+      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending %d bytes", enc_len);
       APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
 
       /* Send the output brigade */
@@ -431,8 +423,7 @@ gssweb_authenticate_user(request_rec *r)
     goto end;
   }
 
-  /* Set-up the output filter (TBD -- register this once?) */
-  ap_register_output_filter("gssweb_auth_filter", gssweb_authenticate_filter, NULL, AP_FTYPE_RESOURCE);
+  /* Add the output filter to this request. */
   ap_add_output_filter("gssweb_auth_filter", (void *)conn_ctx, r, r->connection);
 
   /* Acquire server credentials (TBD -- do this once?) */
@@ -456,7 +447,8 @@ gssweb_authenticate_user(request_rec *r)
   gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
 	  "gssweb_authenticate_user: Client %s us their credential",
 	  (ret_flags & GSS_C_DELEG_FLAG) ? "delegated" : "didn't delegate");
-
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: First four bytes of output token are: %.2x %.2x %.2x %.2x", ((char *)output_token.value)[0], ((char *)output_token.value)[1], ((char *)output_token.value)[2], ((char *)output_token.value)[3]);
+ 
   if (GSS_ERROR(major_status)) {
     gss_log(APLOG_MARK, APLOG_ERR, 0, r,
 	    "%s", get_gss_error(r, major_status, minor_status,
@@ -506,8 +498,12 @@ gssweb_authenticate_user(request_rec *r)
 static void
 gssweb_register_hooks(apr_pool_t *p)
 {
-    ap_hook_check_user_id(gssweb_authenticate_user, NULL, NULL, APR_HOOK_MIDDLE);
-    ap_hook_insert_error_filter(gssweb_add_filter, NULL, NULL, APR_HOOK_MIDDLE);
+  /* register the gssweb output filter */
+  ap_register_output_filter("gssweb_auth_filter", gssweb_authenticate_filter, NULL, AP_FTYPE_RESOURCE);
+
+  /* register hooks */
+  ap_hook_check_user_id(gssweb_authenticate_user, NULL, NULL, APR_HOOK_MIDDLE);
+  ap_hook_insert_error_filter(gssweb_add_filter, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
 module AP_MODULE_DECLARE_DATA auth_gssweb_module = {

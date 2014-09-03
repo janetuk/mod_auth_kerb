@@ -7,11 +7,11 @@ The client goes to /<app>/gss and does a POST containing:
 token: <Base64-encoded GSS Token>
 nonce: <Random String>
 
-The server will respond by sending a JSON reponse:
+The server will respond by sending a JSON response:
 
 {gssweb: {
-    token: "<Base64-encoded & escaped GSS Token>",
-    nonce: "<Nonce from request>"},
+    token= "<Base64-encoded & escaped GSS Token>",
+    nonce= "<Nonce from request>"},
  application: {
     data: "<Base-64-encoded & escaped application data>",
     content-type: "<Original content-type>",

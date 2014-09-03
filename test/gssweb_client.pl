@@ -10,10 +10,11 @@ use URI::Encode qw(uri_encode);
 
 sub parse_token($) {
     my ($json) = @_;
+    print $json;
     my $ref = decode_json($json);
-    return $ref->{'gssweb'}{'token'};
+    return decode_base64($ref->{'gssweb'}{'token'});
 		}
-
+;
 
 sub token_body($$) {
     my ($target_server, $itoken) = @_;
