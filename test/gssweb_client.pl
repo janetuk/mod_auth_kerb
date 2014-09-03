@@ -2,6 +2,7 @@
 
 use strict;
 use WWW::Mechanize;
+    use LWP::ConnCache;
 use GSSAPI;
 use GSSAPI::OID;
 use MIME::Base64;
@@ -49,6 +50,7 @@ sub token_body($$) {
 
 my ($url, $gssname) = @ARGV;
 my $www = WWW::Mechanize->new('autocheck' => 0);
+$www->conn_cache(LWP::ConnCache->new);
 my $done = 0;
 my $response_token = undef;
    while (!$done) {
