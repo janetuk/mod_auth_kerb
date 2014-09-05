@@ -32,8 +32,15 @@
 #include "mod_auth_gssapi.h"
 
 void
-gss_log(const char *file, int line, int level, int status,
-        const request_rec *r, const char *fmt, ...)
+gss_log(const char *file, 
+        int line,
+#if AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORVERSION_NUMBER == 4
+        int module_index,
+#endif
+        int level,
+        int status,
+        const request_rec *r,
+        const char *fmt, ...)
 {
     char errstr[1024];
     va_list ap;
@@ -42,7 +49,16 @@ gss_log(const char *file, int line, int level, int status,
     vsnprintf(errstr, sizeof(errstr), fmt, ap);
     va_end(ap);
    
-    ap_log_rerror(file, line, level | APLOG_NOERRNO, status, r, "%s", errstr);
+    ap_log_rerror(file,
+                  line, 
+#if AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORVERSION_NUMBER == 4
+                  module_index,
+#endif
+                  level | APLOG_NOERRNO, 
+                  status, 
+                  r, 
+                  "%s", 
+                  errstr);
 }
 
 apr_status_t

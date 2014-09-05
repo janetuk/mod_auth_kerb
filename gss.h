@@ -72,8 +72,15 @@ typedef struct gss_conn_ctx_t {
 } *gss_conn_ctx;
 
 void
-gss_log(const char *file, int line, int level, int status,
-        const request_rec *r, const char *fmt, ...);
+gss_log(const char *file, 
+        int line,
+#if AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORVERSION_NUMBER == 4
+        int module_index,
+#endif
+        int level,
+        int status,
+        const request_rec *r,
+        const char *fmt, ...);
 
 apr_status_t
 gss_cleanup_conn_ctx(void *data);
