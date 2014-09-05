@@ -1,24 +1,34 @@
 GSSWEB PROTOCOL DESCRIPTION
 
-This file describes the protocol used for GSSWeb authentication.
+This file describes the protocol used for GSSWeb authentication.  
+
+Note: All messages in the protocol are exchanged in
+'application/x-www-form-urlencoded' format, and no newlines should be
+inserted into the base64 output.
 
 The client goes to /<app>/gss and does a POST containing:
 
 token: <Base64-encoded GSS Token>
-nonce: <Random String>
+nonce: <Random 32-bit integer represented as string>
 
 The server will respond by sending a JSON response:
 
 {gssweb: {
-    token= "<Base64-encoded & escaped GSS Token>",
+    token= "<Base64-encoded GSS Token>",
     nonce= "<Nonce from request>"},
  application: {
-    data: "<Base-64-encoded & escaped application data>",
+    data: "<Base-64-encoded application data>",
     content-type: "<Original content-type>",
     content-length: "<Original content-length>"}
 }
 
-The "gssweb" section in the response is used for the GSS exchange.
-Upon completion of the GSS exchange, the "application" section is used
-by the client to reconstruct the application response upon completion
-of the GSS exchange.
+The "gssweb" section in the response is used for the GSS exchange.  If
+no token was returned by the call to gss_accept_sec_context(), the
+"token" value will be a zero-length string.
+
+The "application" section contains the original server-side
+application or web server response, which will contain an error
+response unless/until the GSS exchange completes successfully.  Upon
+completion of the exchange (whether successful or not), the client can
+use the application data to reconstruct the original response and pass
+it up to the client-side application.

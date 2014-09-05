@@ -13,7 +13,7 @@ sub parse_token($) {
     my ($json) = @_;
     print $json;
     my $ref = decode_json($json);
-    return decode_base64($ref->{'gssweb'}{'token'});
+    return decode_base64($ref->{'gssweb'}{'token'}) or die "No token\n";
 		}
 ;
 
@@ -41,7 +41,7 @@ sub token_body($$) {
     print "$status\n";
     return undef unless $otoken;
     print "Pre-encoding token: $otoken\n";
-    my $encoded_token = encode_base64($otoken);
+    my $encoded_token = encode_base64($otoken, '');
     chomp($encoded_token);
     my $out =  "token=" . uri_encode($encoded_token, {encode_reserved => 1}) ."&nonce=42";
     print "$out\n";
