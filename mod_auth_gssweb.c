@@ -195,16 +195,30 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 
   gss_log(APLOG_MARK, APLOG_DEBUG, 0, f->r, "Entering GSSWeb filter");
 
-  /* get the context from the request */
-  /* if the context is NULL or there is no nonce set, just exit */
+  /* Get the context from the request.  If the context is NULL or 
+   * there is no outstanding request (no nonce set), just forward 
+   * all of the buckets as-is, because the client isn't gssweb 
+   */
   if ((NULL == (conn_ctx = gss_retrieve_conn_ctx(r))) ||
       (0 == conn_ctx->nonce)) {
+    for (bkt_in = APR_BRIGADE_FIRST(brig_in);
+	 bkt_in != APR_BRIGADE_SENTINEL(brig_in);
+	 bkt_in = APR_BUCKET_NEXT(bkt_in))
+      {
+	if (NULL == (brig_out = apr_brigade_create(r->pool, c->bucket_alloc))) {      
+	  apr_brigade_cleanup(brig_in);
+	  return HTTP_INTERNAL_SERVER_ERROR;
+	}
+	apr_bucket_copy(bkt_in, &bkt_out);
+	APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
+	ap_pass_brigade(f->next, brig_out);
+      }
     gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Failed to find valid context");
     apr_brigade_cleanup(brig_in);
     return OK;
   }
 
-  /* if this is the first call for a response, send opening JSON block */
+  /* If this is the first call for a response, send opening JSON block */
   if (GSS_FILT_NEW == conn_ctx->filter_stat) {
     gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: First filter call for response");
     if (NULL == (brig_out = apr_brigade_create(r->pool, c->bucket_alloc))) {
@@ -230,6 +244,7 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
       apr_brigade_cleanup(brig_out);
       return HTTP_INTERNAL_SERVER_ERROR;
     }
+
     /* Send opening JSON block */
     snprintf((char *)data, len+1024, 
 	     "{\"gssweb\": {\n\"token\": \"%s\",\n\"nonce\": \"%d\"},\n\"application\": {\n\"data\": \"", 
