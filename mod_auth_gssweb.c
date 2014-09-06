@@ -79,14 +79,14 @@ static int gssweb_read_req(request_rec *r, const char **rbuf, apr_off_t *size)
   int rc = OK;
 
   if((rc = ap_setup_client_block(r, REQUEST_CHUNKED_ERROR))) {
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_get_post_data: Failed to set up client block");
     return(rc);
   }
   
   if(ap_should_client_block(r)) {
-
-    char         argsbuffer[HUGE_STRING_LEN];
-    apr_off_t    rsize, len_read, rpos = 0;
-    apr_off_t    length = r->remaining;
+    char          argsbuffer[HUGE_STRING_LEN];
+    apr_off_t     rsize, len_read, rpos = 0;
+    apr_off_t     length = r->remaining;
 
     *rbuf = (const char *) apr_pcalloc(r->pool, (apr_size_t) (length + 1));
     *size = length;
@@ -97,7 +97,7 @@ static int gssweb_read_req(request_rec *r, const char **rbuf, apr_off_t *size)
       else {
 	rsize = len_read;
       }
-      
+
       memcpy((char *) *rbuf + rpos, argsbuffer, (size_t) rsize);
       rpos += rsize;
     }
@@ -114,48 +114,51 @@ static int gssweb_get_post_data(request_rec *r, int *nonce, gss_buffer_desc *inp
   apr_off_t datalen;
   const char *key, *val, *type;
   int rc = 0;
+  size_t len;
 
   *nonce = 0;
   input_token->length = 0;
   input_token->value = NULL;
 
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: Entering function");
+ 
   if(r->method_number != M_POST) {
-    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: Request data is not a POST, declining.");
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_get_post_data: Request data is not a POST, declining.");
     return DECLINED;
   }
 
   type = apr_table_get(r->headers_in, "Content-Type");
   if(strcasecmp(type, DEFAULT_ENCTYPE) != 0) {
-    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: Unexpected content type, declining.");
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_get_post_data: Unexpected content type, declining.");
     return DECLINED;
   }
 
   if((rc = gssweb_read_req(r, &data, &datalen)) != OK) {
-    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: Data read error, rc = %d", rc);
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_get_post_data: Data read error, rc = %d", rc);
     return rc;
   }
-
+  
   while(*data && (val = ap_getword(r->pool, &data, '&'))) { 
-    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: obtained val from ap_getword() (%s)", val);
     key = ap_getword(r->pool, &val, '=');
     ap_unescape_url((char*)key);
     ap_unescape_url((char*)val);
     if (0 == strcasecmp(key, "token")) {
-      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: found token (%s)", val);
-      input_token->value = malloc(strlen(val));
+      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: Found encoded token: %s", val);
+      len = apr_base64_decode_len(val);
+      if (NULL == (input_token->value = apr_pcalloc(r->pool, len+1))) {
+      }
       input_token->length = apr_base64_decode(input_token->value, val);
-      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: Token successfully decoded.");
     }
     else if (0 == strcasecmp(key, "nonce")) {
-      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: found nonce (%s)", val);
+      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: Found nonce: %s", val);
       *nonce = atoi(val);
     }
     else {
-      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: unknown key (%s)", key);
+      gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_get_post_data: unknown key (%s), ignored", key);
     }
   }
   if ((0 == *nonce) || (0 == input_token->length)) {
-    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: nonce (%d) or token len (%d) is 0, declining", *nonce, input_token->length);
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_get_post_data: nonce (%d) or token len (%d) is 0, declining", *nonce, input_token->length);
     return DECLINED;
   }
   else {
@@ -193,15 +196,17 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
   gss_log(APLOG_MARK, APLOG_DEBUG, 0, f->r, "Entering GSSWeb filter");
 
   /* get the context from the request */
-  conn_ctx = gss_retrieve_conn_ctx(r);
-  if (NULL == conn_ctx) {
-    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Failed to find valid context.");
+  /* if the context is NULL or there is no nonce set, just exit */
+  if ((NULL == (conn_ctx = gss_retrieve_conn_ctx(r))) ||
+      (0 == conn_ctx->nonce)) {
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Failed to find valid context");
     apr_brigade_cleanup(brig_in);
-    return HTTP_INTERNAL_SERVER_ERROR;
+    return OK;
   }
-    
+
   /* if this is the first call for a response, send opening JSON block */
   if (GSS_FILT_NEW == conn_ctx->filter_stat) {
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: First filter call for response");
     if (NULL == (brig_out = apr_brigade_create(r->pool, c->bucket_alloc))) {
       conn_ctx->filter_stat = GSS_FILT_ERROR;
       gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate output brigade (opening)");
@@ -209,16 +214,23 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
       return HTTP_INTERNAL_SERVER_ERROR;
     }
 
+    /* Encode the output token */
     len = apr_base64_encode_len(conn_ctx->output_token.length);
-    if (NULL == (data = apr_bucket_alloc(len+1024, c->bucket_alloc)) ||
-	NULL == (stoken = apr_bucket_alloc(len+1, c->bucket_alloc))) {
-      gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate space for opening json block");
+    if (NULL == (stoken = apr_bucket_alloc(len+1, c->bucket_alloc))) {
+      gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate space for encoded output token");
       apr_brigade_cleanup(brig_in);
       apr_brigade_cleanup(brig_out);
       return HTTP_INTERNAL_SERVER_ERROR;
     }
-
     apr_base64_encode_binary(stoken, conn_ctx->output_token.value, conn_ctx->output_token.length);
+
+    if (NULL == (data = apr_bucket_alloc(len+1024, c->bucket_alloc))) {
+      gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate space for opening JSON block");
+      apr_brigade_cleanup(brig_in);
+      apr_brigade_cleanup(brig_out);
+      return HTTP_INTERNAL_SERVER_ERROR;
+    }
+    /* Send opening JSON block */
     snprintf((char *)data, len+1024, 
 	     "{\"gssweb\": {\n\"token\": \"%s\",\n\"nonce\": \"%d\"},\n\"application\": {\n\"data\": \"", 
 	     stoken, conn_ctx->nonce);
@@ -236,7 +248,7 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
     conn_ctx->filter_stat = GSS_FILT_INPROGRESS;
   }
 
-  /* loop through the app data buckets, escaping and sending each one */
+  /* Loop through the app data buckets, escaping and sending each one */
   for (bkt_in = APR_BRIGADE_FIRST(brig_in);
        bkt_in != APR_BRIGADE_SENTINEL(brig_in);
        bkt_in = APR_BUCKET_NEXT(bkt_in))
@@ -254,7 +266,7 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 	  /* create and add the JSON closing block */
 	  
 	  if (NULL == (data = apr_bucket_alloc(1024, c->bucket_alloc))) {
-	      gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate space for closing json block");
+	      gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate space for closing JSON block");
 	      apr_brigade_cleanup(brig_in);
 	      apr_brigade_cleanup(brig_out);
 	      return HTTP_INTERNAL_SERVER_ERROR;
@@ -289,30 +301,30 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 
       /* Read application data from each input bucket */
       apr_bucket_read(bkt_in, &data, &len, APR_BLOCK_READ);
-      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Application Data (%d bytes): %s", len, data);
 
-      /* Base64 encode the data */
-      enc_len = apr_base64_encode_len(len);
-      if (NULL == (buf = apr_bucket_alloc(enc_len, c->bucket_alloc))) {
-	gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate space for application data");
-	apr_brigade_cleanup(brig_in);
-	apr_brigade_cleanup(brig_out);
-	return HTTP_INTERNAL_SERVER_ERROR;
-      }
-      enc_len = apr_base64_encode_binary(buf, data, len);
+      /* Base64 encode the data (if any) */
+      if (0 != len) {
+	enc_len = apr_base64_encode_len(len);
+	if (NULL == (buf = apr_bucket_alloc(enc_len, c->bucket_alloc))) {
+	  gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate space for encoded application data");
+	  apr_brigade_cleanup(brig_in);
+	  apr_brigade_cleanup(brig_out);
+	  return HTTP_INTERNAL_SERVER_ERROR;
+	}
+	enc_len = apr_base64_encode_binary(buf, data, len);
 
-      /* Put the data in a bucket and add it to the the output brigade */
-      bkt_out = apr_bucket_heap_create(buf, enc_len-1, apr_bucket_free, c->bucket_alloc);
-      buf[enc_len] = '\0';
-      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending (%d bytes):", enc_len, buf);
-      APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
-
-      /* Send the output brigade */
-      gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Passing the application data brigade");
-      if (OK != (ret = ap_pass_brigade(f->next, brig_out))) {
-	apr_brigade_cleanup(brig_in);
-	apr_brigade_cleanup(brig_out);
-	return ret;
+	/* Put the data in a bucket and add it to the the output brigade */
+	bkt_out = apr_bucket_heap_create(buf, enc_len-1, apr_bucket_free, c->bucket_alloc);
+	buf[enc_len] = '\0';
+	gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending (%d bytes)", enc_len);
+	APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
+	
+	/* Send the output brigade */
+	if (OK != (ret = ap_pass_brigade(f->next, brig_out))) {
+	  apr_brigade_cleanup(brig_in);
+	  apr_brigade_cleanup(brig_out);
+	  return ret;
+	}
       }
     }
 
@@ -379,24 +391,31 @@ gssweb_authenticate_user(request_rec *r)
 	goto end;
   }
 
+  /* Retrieve the existing context (if any), or create one */
+  if ((NULL == (conn_ctx = gss_retrieve_conn_ctx(r))) &&
+      (NULL == (conn_ctx = gss_create_conn_ctx(r, conf)))) {
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_user: Unable to find or create context");
+  }
+
   /* Read the token and nonce from the POST */
   if (0 != gssweb_get_post_data(r, &nonce, &input_token)) {
-    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_user: Unable to read nonce or input token.");
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_user: Unable to read nonce or input token from GSSWeb input");
+    gss_delete_sec_context(&minor_status, &conn_ctx->context, GSS_C_NO_BUFFER);
+    conn_ctx->context = GSS_C_NO_CONTEXT;
+    conn_ctx->state = GSS_CTX_FAILED;
+    if (0 != conn_ctx->output_token.length)
+      gss_release_buffer(&minor_status, &(conn_ctx->output_token));
+    conn_ctx->output_token.length = 0;
     ret = HTTP_UNAUTHORIZED;
     goto end;
   }
   gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: GSSWeb nonce value = %u.", nonce);
 
-  /* Retrieve the existing context (if any) and see if it matches this request */
-  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Attempting to retrieve GSS context");
-  conn_ctx = gss_retrieve_conn_ctx(r);
-
-  /* If there is no matching context, create a new one */
-  if ((NULL == conn_ctx) || 
-      (conn_ctx->nonce != nonce)) {
-    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Creating a new GSS context");
-    if (conn_ctx)
-      gss_cleanup_conn_ctx(conn_ctx);
+  /* If the nonce does not match, release old context and create new */
+  if ((0 != conn_ctx->nonce) && (conn_ctx->nonce != nonce)) {
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
+	    "gssweb_authenticate_user: Nonce in context (%d) does not match nonce in input (%d), new request", conn_ctx->nonce, nonce);
+    gss_cleanup_conn_ctx(conn_ctx);
     if (NULL == (conn_ctx = gss_create_conn_ctx (r, conf))) {
       gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_user: Failed to create GSS context");
       ret = HTTP_INTERNAL_SERVER_ERROR;
@@ -404,20 +423,15 @@ gssweb_authenticate_user(request_rec *r)
     }
   }
 
-  if (NULL == conn_ctx) {
-      gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_user: ERROR -- no GSS context");
-      goto end;
-  }
-
   /* If the output filter reported an internal server error, return it */
   if (GSS_FILT_ERROR == conn_ctx->filter_stat) {
-    ret = HTTP_INTERNAL_SERVER_ERROR;
     gss_log(APLOG_MARK, APLOG_ERR, 0, r,
 	    "gssweb_authenticate_user: Output filter returned error, reporting.");
+    ret = HTTP_INTERNAL_SERVER_ERROR;
     goto end;
   }
 
-  /* Add the output filter to this request (only applies to non-error returns) */
+  /* Add the output filter to this request (for non-error returns) */
   ap_add_output_filter("gssweb_auth_filter", (void *)conn_ctx, r, r->connection);
 
   /* Call gss_accept_sec_context */
@@ -435,25 +449,26 @@ gssweb_authenticate_user(request_rec *r)
   gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
 	  "gssweb_authenticate_user: Client %s us their credential",
 	  (ret_flags & GSS_C_DELEG_FLAG) ? "delegated" : "didn't delegate");
-  if (output_token.length >= 4) {
-    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: First four bytes of output token are: %.2x %.2x %.2x %.2x", ((char *)output_token.value)[0], ((char *)output_token.value)[1], ((char *)output_token.value)[2], ((char *)output_token.value)[3]);
-  } else {
-    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: No output token");
-  }
- 
+
   if (GSS_ERROR(major_status)) {
     gss_log(APLOG_MARK, APLOG_ERR, 0, r,
 	    "%s", get_gss_error(r, major_status, minor_status,
 				"gssweb_authenticate_user: Failed to establish authentication"));
-    gss_delete_sec_context(&minor_status, &conn_ctx->context, GSS_C_NO_BUFFER);
-    conn_ctx->context = GSS_C_NO_CONTEXT;
-    conn_ctx->state = GSS_CTX_EMPTY;
-    ret = HTTP_UNAUTHORIZED;
-    goto end;
-    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Decoding ouput token.");
+    conn_ctx->state = GSS_CTX_FAILED;
   }
 
-  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Got sec context, storing nonce and output token.");
+  /* If there was no token returned, clear token from context and exit */
+  if (0 == output_token.length) {
+    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_user: No output token");
+    gss_delete_sec_context(&minor_status, &conn_ctx->context, GSS_C_NO_BUFFER);
+    conn_ctx->context = GSS_C_NO_CONTEXT;
+    conn_ctx->state = GSS_CTX_FAILED;
+    if (0 != conn_ctx->output_token.length)
+      gss_release_buffer(&minor_status, &(conn_ctx->output_token));
+    conn_ctx->output_token.length = 0;
+    ret = HTTP_UNAUTHORIZED;
+    goto end;
+  }
 
   /* Store the nonce & ouput token in the stored context */
   conn_ctx->nonce = nonce;
@@ -461,15 +476,17 @@ gssweb_authenticate_user(request_rec *r)
   release_output_token = 0;
 
   /* If we aren't done yet, go around again */
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Accept sec context complete, continue needed");
   if (major_status & GSS_S_CONTINUE_NEEDED) {
     conn_ctx->state = GSS_CTX_IN_PROGRESS;
     ret = HTTP_UNAUTHORIZED;
     goto end;
   }
 
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Authentication succeeded!!");
   conn_ctx->state = GSS_CTX_ESTABLISHED;
-	r->user = apr_pstrdup(r->pool, conn_ctx->user);
-	r->ap_auth_type = "GSSWeb";
+  r->user = apr_pstrdup(r->pool, conn_ctx->user);
+  r->ap_auth_type = "GSSWeb";
   ret = OK;
 
  end:
