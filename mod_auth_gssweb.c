@@ -303,6 +303,13 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 	  bkt_eos = apr_bucket_eos_create(c->bucket_alloc);
 	  APR_BRIGADE_INSERT_TAIL (brig_out, bkt_eos);
 	  
+	  /* set application type to 'application/json' */
+	  apr_table_set(r->headers_out, "Content-Type", "application/json");
+
+	  /* clear content-length and MD5 checksum */
+	  apr_table_unset(r->headers_out, "Content-Length");
+	  apr_table_unset(r->headers_out, "Content-MD5");
+
 	  /* pass the brigade */
 	  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending: EOS");
 	  if (0 != (ret = ap_pass_brigade(f->next, brig_out))) {
