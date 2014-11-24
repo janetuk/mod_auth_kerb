@@ -66,6 +66,7 @@ my $response_token = undef;
     } elsif ($status == 401) {
 	print "Continuing\n";
 	$response_token = parse_token($www->content());
+	die "Empty token supplied\n" if $response_token eq "";
     } else {
 	print "Unexpected response status: $status\n";
 	print $www->content();
