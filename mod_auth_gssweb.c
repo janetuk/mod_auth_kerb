@@ -218,6 +218,13 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
     return OK;
   }
 
+  c_type = apr_table_get(r->headers_in, "Content-Type");
+  c_len = apr_table_get(r->headers_in, "Content-Length");
+  /* clear content-length and MD5 checksum */
+  apr_table_unset(r->headers_out, "Content-Length");
+  apr_table_unset(r->headers_out, "Content-MD5");
+  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Received Content-Type: %s, Content-Length: %d", c_type, c_len);
+
   /* If this is the first call for a response, send opening JSON block */
   if (GSS_FILT_NEW == conn_ctx->filter_stat) {
     gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: First filter call for response");
@@ -287,8 +294,6 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 	      return HTTP_INTERNAL_SERVER_ERROR;
 	  }
 
-	  c_type = apr_table_get(r->headers_in, "Content-Type");
-          c_len = apr_table_get(r->headers_in, "Content-Length");
 	  snprintf((char *)data, 1024, "\",\n\"content-type\": \"%s\",\n\"content-length\": \"%s\"\n}\n}", c_type, c_len);
 	  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending (%d bytes) %s", strlen(data), data);
 
