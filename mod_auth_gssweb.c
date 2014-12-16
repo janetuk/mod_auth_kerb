@@ -108,7 +108,7 @@ static int gssweb_read_req(request_rec *r, const char **rbuf, apr_off_t *size)
 /* gssweb_get_post_data() -- Gets the token and nonce from the request
  * data.
  */
-static int gssweb_get_post_data(request_rec *r, int *nonce, gss_buffer_desc *input_token)
+static int gssweb_get_post_data(request_rec *r, unsigned int *nonce, gss_buffer_desc *input_token)
 {
   const char *data;
   apr_off_t datalen;
@@ -128,7 +128,7 @@ static int gssweb_get_post_data(request_rec *r, int *nonce, gss_buffer_desc *inp
   }
 
   type = apr_table_get(r->headers_in, "Content-Type");
-  if(strcasecmp(type, DEFAULT_ENCTYPE) != 0) {
+  if(strncasecmp(type, DEFAULT_ENCTYPE, strlen(DEFAULT_ENCTYPE)) != 0) {
     gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_get_post_data: Unexpected content type, declining.");
     return DECLINED;
   }
@@ -426,14 +426,17 @@ gssweb_authenticate_user(request_rec *r)
 
   /* Read the token and nonce from the POST */
   if (0 != gssweb_get_post_data(r, &nonce, &input_token)) {
-    gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_user: Unable to read nonce or input token from GSSWeb input");
-    gss_delete_sec_context(&minor_status, &conn_ctx->context, GSS_C_NO_BUFFER);
-    conn_ctx->context = GSS_C_NO_CONTEXT;
-    conn_ctx->state = GSS_CTX_FAILED;
-    if (0 != conn_ctx->output_token.length)
-      gss_release_buffer(&minor_status, &(conn_ctx->output_token));
-    conn_ctx->output_token.length = 0;
-    ret = HTTP_UNAUTHORIZED;
+    /* If we get spurious msg on an established session, say OK again */
+    if (GSS_CTX_ESTABLISHED ==  conn_ctx->state)
+      ret =  OK;
+    /* ...otherwise, if we are in progress, return HTTP_UNAUTHORIZED */
+    if (GSS_CTX_IN_PROGRESS == conn_ctx->state)
+      ret = HTTP_UNAUTHORIZED;
+    /* If this would start a new session, free the context and return DECLINED */
+    else {
+      gss_cleanup_conn_ctx(conn_ctx);
+      ret = DECLINED;
+    }
     goto end;
   }
   gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: GSSWeb nonce value = %u.", nonce);
@@ -503,8 +506,8 @@ gssweb_authenticate_user(request_rec *r)
   release_output_token = 0;
 
   /* If we aren't done yet, go around again */
-  gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Accept sec context complete, continue needed");
   if (major_status & GSS_S_CONTINUE_NEEDED) {
+    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_user: Accept sec context complete, continue needed");
     conn_ctx->state = GSS_CTX_IN_PROGRESS;
     ret = HTTP_UNAUTHORIZED;
     goto end;
