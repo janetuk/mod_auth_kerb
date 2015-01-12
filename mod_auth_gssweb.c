@@ -485,6 +485,7 @@ gssweb_authenticate_user(request_rec *r)
 	    "%s", get_gss_error(r, major_status, minor_status,
 				"gssweb_authenticate_user: Failed to establish authentication"));
     conn_ctx->state = GSS_CTX_FAILED;
+    goto end;
   }
 
   /* If there was no token returned, clear token from context and exit */
