@@ -128,10 +128,10 @@ if test "x$with_krb5" != "xno" ; then
   if test -z "$KRB5_LDFLAGS"; then
      with_krb5=no
   else
-     AC_DEFINE(KRB5,[Kerberos 5 enabled.])
+     AC_DEFINE(KRB5,,[Kerberos 5 enabled.])
      AC_CHECK_LIB(krb5,
                   krb5_cc_new_unique,
-                  [ AC_DEFINE(HAVE_KRB5_CC_NEW_UNIQUE,[Have krb5_cc_new_unique]) ])
+                  [ AC_DEFINE(HAVE_KRB5_CC_NEW_UNIQUE,1,[Have krb5_cc_new_unique]) ])
 
      # check for Heimdal
      have_heimdal=""
@@ -141,7 +141,7 @@ if test "x$with_krb5" != "xno" ; then
      AC_TRY_COMPILE([#include <krb5.h>],
 		    [ char *tmp = heimdal_version; ],
 		    [ AC_MSG_RESULT(yes)
-		      AC_DEFINE(HEIMDAL,[Using the Heimdal implementation of Kerberos])
+		      AC_DEFINE(HEIMDAL,,[Using the Heimdal implementation of Kerberos])
 		      have_heimdal=yes ],
 		    [ AC_MSG_RESULT(no) ])
      CFLAGS="$ac_save_CFLAGS"
@@ -194,7 +194,7 @@ int main(int argc, char** argv)
 }],
                 [ if test $? -eq 0; then 
                      AC_MSG_RESULT(yes)
-                     AC_DEFINE(GSSAPI_SUPPORTS_SPNEGO,[GSS-API library supports SPNEGO])
+                     AC_DEFINE(GSSAPI_SUPPORTS_SPNEGO,,[GSS-API library supports SPNEGO])
                      gssapi_supports_spnego=yes 
                   else
                      AC_MSG_RESULT(no)
