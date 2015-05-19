@@ -1,0 +1,8 @@
+*.o
+Makefile
+mod_auth_gssapi*tar.gz
+configure
+autom4te.cache
+config.status
+config.h
+config.log

@@ -26,11 +26,6 @@ distclean: clean
 	$(RM) config.h config.status Makefile config.log
 	$(RM) -rf autom4te.cache
 
-make_release:
-	echo "Did you increase version numbers?"
-	autoconf
-	$(RM) -rf autom4te.cache
-	$(RM) -rf .cvsignore spnegokrb5/.cvsignore src/.cvsignore
-	$(RM) -rf CVS spnegokrb5/CVS src/CVS
-
-.PHONY: all install clean distclean
+dist-gzip:
+	git archive  --prefix mod_auth_gssapi/ HEAD |gzip -9 >@PACKAGE_TARNAME@-@PACKAGE_VERSION@.tar.gz
+.PHONY: all install clean distclean dist-gzip
