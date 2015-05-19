@@ -166,6 +166,9 @@ if test -z "$APXS"; then
    fi
 fi
 AC_SUBST(APXS)
+AC_SUBST(PACKAGE_VERSION)
+AC_SUBST(PACKAGE_TARNAME)
+
 
 AC_CONFIG_FILES([Makefile])
 
