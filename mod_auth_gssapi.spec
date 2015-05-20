@@ -1,7 +1,7 @@
 Summary: GSSAPI authentication module for the Apache HTTP Server
 Name: mod_auth_gssapi
 Version: 1.0
-Release: 1%{?dist
+Release: 1%{?dist}
 License: BSD
 Group: System Environment/Daemons
 URL: http://wiki.moonshot.ja.net/
