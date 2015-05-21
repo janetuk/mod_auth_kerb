@@ -14,7 +14,7 @@ users of the Apache HTTP server using the SPNEGO-based HTTP
 Authentication protocol defined in RFC4559.
 
 %prep
-%setup -q -n mod_auth_kerb-moonshot
+%setup -q
 
 %build
 %configure
