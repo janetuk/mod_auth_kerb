@@ -30,7 +30,7 @@ install -m 755 .libs/mod_auth_gssapi.so $RPM_BUILD_ROOT%{_libdir}/httpd/modules
 
 # install the conf.d fragment
 mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/httpd/conf.d
-install -m 644 $RPM_SOURCE_DIR/mod_auth_gssapi.conf \
+install -m 644 mod_auth_gssapi.conf \
    $RPM_BUILD_ROOT%{_sysconfdir}/httpd/conf.d/auth_gssapi.conf
 
 rm -f $RPM_BUILD_ROOT%{_libdir}/httpd/modules/{*.la,*.so.*}
