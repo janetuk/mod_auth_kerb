@@ -17,6 +17,7 @@ Authentication protocol defined in RFC4559.
 %setup -q -n mod_auth_gssapi
 
 %build
+autoreconf -i
 %configure
 make
 
