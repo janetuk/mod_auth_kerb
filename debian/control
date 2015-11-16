@@ -2,7 +2,7 @@ Source: libapache2-mod-auth-gssapi
 Section: net
 Priority: optional
 Maintainer: Sam Hartman <hartmans@debian.org>
-Build-Depends: debhelper (>= 7.0.50~), autotools-dev, apache2-dev, libkrb5-dev
+Build-Depends: debhelper (>= 7.0.50~), autotools-dev, apache2-dev|apache2-threaded-dev, libkrb5-dev
 Standards-Version: 3.9.1
 Homepage: <http://www.project-moonshot.org/
 Vcs-Git: http://www.project-moonshot.org/git/mod-auth-kerb.git
