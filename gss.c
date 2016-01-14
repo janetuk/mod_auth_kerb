@@ -32,7 +32,7 @@
 #include "mod_auth_gssapi.h"
 
 void
-gss_log(const char *file, 
+gss_log(const char *file,
         int line,
 #if AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORVERSION_NUMBER == 4
         int module_index,
@@ -48,16 +48,16 @@ gss_log(const char *file,
     va_start(ap, fmt);
     vsnprintf(errstr, sizeof(errstr), fmt, ap);
     va_end(ap);
-   
+
     ap_log_rerror(file,
-                  line, 
+                  line,
 #if AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORVERSION_NUMBER == 4
                   module_index,
 #endif
-                  level | APLOG_NOERRNO, 
-                  status, 
-                  r, 
-                  "%s", 
+                  level | APLOG_NOERRNO,
+                  status,
+                  r,
+                  "%s",
                   errstr);
 }
 
@@ -69,7 +69,7 @@ gss_cleanup_conn_ctx(void *data)
 
     if (ctx && ctx->context != GSS_C_NO_CONTEXT)
 	gss_delete_sec_context(&minor_status, &ctx->context, GSS_C_NO_BUFFER);
-  
+
     if (ctx && ctx->server_creds != GSS_C_NO_CREDENTIAL)
       gss_release_cred(&minor_status, &ctx->server_creds);
 
@@ -81,10 +81,10 @@ gss_create_conn_ctx(request_rec *r, gss_auth_config *conf)
 {
   char key[1024];
   gss_conn_ctx ctx = NULL;
- 
+
   snprintf(key, sizeof(key), "mod_auth_gssweb:conn_ctx");
-  
-  if (NULL == (ctx = (gss_conn_ctx) apr_palloc(r->connection->pool, sizeof(*ctx)))) {
+
+  if (NULL == (ctx = (gss_conn_ctx) apr_pcalloc(r->connection->pool, sizeof(*ctx)))) {
     gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gss_create_conn_ctx: Can't allocate GSS context");
     return NULL;
   }
@@ -92,6 +92,12 @@ gss_create_conn_ctx(request_rec *r, gss_auth_config *conf)
   ctx->state = GSS_CTX_EMPTY;
   ctx->filter_stat = GSS_FILT_NEW;
   ctx->user = NULL;
+  ctx->name_attributes = NULL;
+  apr_pool_create(&ctx->pool, r->connection->pool);
+  /* register the context in the memory pool, so it can be freed
+   * when the connection/request is terminated */
+  apr_pool_cleanup_register(ctx->pool, (void *)ctx,
+                              gss_cleanup_conn_ctx, apr_pool_cleanup_null);
 
   /* Acquire and store server credentials */
   if (0 == get_gss_creds(r, conf, &(ctx->server_creds))) {
@@ -111,7 +117,7 @@ gss_retrieve_conn_ctx(request_rec *r)
 {
   char key[1024];
   gss_conn_ctx ctx = NULL;
- 
+
   snprintf(key, sizeof(key), "mod_auth_gssweb:conn_ctx");
   apr_pool_userdata_get((void **)&ctx, key, r->connection->pool);
 
@@ -127,6 +133,8 @@ gss_config_dir_create(apr_pool_t *p, char *d)
     gss_auth_config *conf;
 
     conf = (gss_auth_config *) apr_pcalloc(p, sizeof(*conf));
+    conf->pool = p;
+
     return conf;
 }
 
@@ -134,7 +142,7 @@ gss_config_dir_create(apr_pool_t *p, char *d)
 const char *
 get_gss_error(request_rec *r, OM_uint32 err_maj, OM_uint32 err_min, char *prefix)
 {
-   OM_uint32 maj_stat, min_stat; 
+   OM_uint32 maj_stat, min_stat;
    OM_uint32 msg_ctx = 0;
    gss_buffer_desc status_string;
    char *err_msg;
@@ -234,7 +242,7 @@ get_gss_creds(request_rec *r,
 
    gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "Acquiring creds for %s", token.value);
    gss_release_buffer(&minor_status, &token);
-   
+
    major_status = gss_acquire_cred(&minor_status, server_name, GSS_C_INDEFINITE,
 			           GSS_C_NO_OID_SET, GSS_C_ACCEPT,
 				   server_creds, NULL, NULL);
@@ -276,3 +284,350 @@ cmp_gss_type(gss_buffer_t token, gss_OID oid)
    return memcmp(p, oid->elements, oid->length);
 }
 
+/*
+ * Name attributes to environment variables code
+ * This code is strongly based on the code from https://github.com/modauthgssapi/mod_auth_gssapi
+ */
+
+static char *mag_status(request_rec *req, int type, uint32_t err)
+{
+    uint32_t maj_ret, min_ret;
+    gss_buffer_desc text;
+    uint32_t msg_ctx;
+    char *msg_ret;
+    int len;
+
+    msg_ret = NULL;
+    msg_ctx = 0;
+    do {
+        maj_ret = gss_display_status(&min_ret, err, type,
+                                     GSS_C_NO_OID, &msg_ctx, &text);
+        if (maj_ret != GSS_S_COMPLETE) {
+            return msg_ret;
+        }
+
+        len = text.length;
+        if (msg_ret) {
+            msg_ret = apr_psprintf(req->pool, "%s, %*s",
+                                   msg_ret, len, (char *)text.value);
+        } else {
+            msg_ret = apr_psprintf(req->pool, "%*s", len, (char *)text.value);
+        }
+        gss_release_buffer(&min_ret, &text);
+    } while (msg_ctx != 0);
+
+    return msg_ret;
+}
+
+char *mag_error(request_rec *req, const char *msg, uint32_t maj, uint32_t min)
+{
+    char *msg_maj;
+    char *msg_min;
+
+    msg_maj = mag_status(req, GSS_C_GSS_CODE, maj);
+    msg_min = mag_status(req, GSS_C_MECH_CODE, min);
+    return apr_psprintf(req->pool, "%s: [%s (%s)]", msg, msg_maj, msg_min);
+}
+
+
+static char mag_get_name_attr(request_rec *req,
+                              gss_name_t name, name_attr *attr)
+{
+    uint32_t maj, min;
+
+    maj = gss_get_name_attribute(&min, name, &attr->name,
+                                 &attr->authenticated,
+                                 &attr->complete,
+                                 &attr->value,
+                                 &attr->display_value,
+                                 &attr->more);
+    if (GSS_ERROR(maj)) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, req,
+                      "gss_get_name_attribute() failed on %.*s%s",
+                      (int)attr->name.length, (char *)attr->name.value,
+                      mag_error(req, "", maj, min));
+        return 0;
+    }
+
+    return 1;
+}
+
+static void mc_add_name_attribute(gss_conn_ctx_t *gss_ctx,
+                                  const char *name, const char *value)
+{
+    size_t size;
+
+    if (gss_ctx->na_count % 16 == 0) {
+        size = sizeof(mag_attr) * (gss_ctx->na_count + 16);
+        gss_ctx->name_attributes = realloc(gss_ctx->name_attributes, size);
+        if (!gss_ctx->name_attributes) apr_pool_abort_get(gss_ctx->pool)(ENOMEM);
+    }
+
+    gss_ctx->name_attributes[gss_ctx->na_count].name = apr_pstrdup(gss_ctx->pool, name);
+    gss_ctx->name_attributes[gss_ctx->na_count].value = apr_pstrdup(gss_ctx->pool, value);
+    gss_ctx->na_count++;
+}
+
+static void mag_set_env_name_attr(request_rec *req, gss_conn_ctx_t *gss_ctx,
+                                  name_attr *attr)
+{
+    char *value = "";
+    int len = 0;
+
+    /* Prefer a display_value, otherwise fallback to value */
+    if (attr->display_value.length != 0) {
+        len = attr->display_value.length;
+        value = (char *)attr->display_value.value;
+    } else if (attr->value.length != 0) {
+        len = apr_base64_encode_len(attr->value.length);
+        value = apr_pcalloc(req->pool, len);
+        len = apr_base64_encode(value,
+                                (char *)attr->value.value,
+                                attr->value.length);
+    }
+
+    if (attr->number == 1) {
+        mc_add_name_attribute(gss_ctx,
+                              attr->env_name,
+                              apr_psprintf(req->pool, "%.*s", len, value));
+    }
+    if (attr->more != 0 || attr->number > 1) {
+        mc_add_name_attribute(gss_ctx,
+                              apr_psprintf(req->pool, "%s_%d",
+                                           attr->env_name, attr->number),
+                              apr_psprintf(req->pool, "%.*s", len, value));
+    }
+    if (attr->more == 0 && attr->number > 1) {
+        mc_add_name_attribute(gss_ctx,
+                              apr_psprintf(req->pool, "%s_N", attr->env_name),
+                              apr_psprintf(req->pool, "%d", attr->number - 1));
+    }
+}
+
+static void mag_add_json_name_attr(request_rec *req, char first,
+                                   name_attr *attr, char **json)
+{
+    const char *value = "";
+    int len = 0;
+    char *b64value = NULL;
+    int b64len = 0;
+    const char *vstart = "";
+    const char *vend = "";
+    const char *vformat;
+
+    if (attr->value.length != 0) {
+        b64len = apr_base64_encode_len(attr->value.length);
+        b64value = apr_pcalloc(req->pool, b64len);
+        b64len = apr_base64_encode(b64value,
+                                   (char *)attr->value.value,
+                                   attr->value.length);
+    }
+    if (attr->display_value.length != 0) {
+        len = attr->display_value.length;
+        value = (const char *)attr->display_value.value;
+    }
+    if (attr->number == 1) {
+        *json = apr_psprintf(req->pool,
+                            "%s%s\"%.*s\":{\"authenticated\":%s,"
+                                          "\"complete\":%s,"
+                                          "\"values\":[",
+                            *json, (first ? "" : ","),
+                            (int)attr->name.length, (char *)attr->name.value,
+                            attr->authenticated ? "true" : "false",
+                            attr->complete ? "true" : "false");
+    } else {
+        vstart = ",";
+    }
+
+    if (b64value) {
+        if (len) {
+            vformat = "%s%s{\"raw\":\"%s\",\"display\":\"%.*s\"}%s";
+        } else {
+            vformat = "%s%s{\"raw\":\"%s\",\"display\":%.*s}%s";
+        }
+    } else {
+        if (len) {
+            vformat = "%s%s{\"raw\":%s,\"display\":\"%.*s\"}%s";
+        } else {
+            vformat = "%s%s{\"raw\":%s,\"display\":%.*s}%s";
+        }
+    }
+
+    if (attr->more == 0) {
+        vend = "]}";
+    }
+
+    *json = apr_psprintf(req->pool, vformat, *json,
+                        vstart,
+                        b64value ? b64value : "null",
+                        len ? len : 4, len ? value : "null",
+                        vend);
+}
+
+gss_buffer_desc empty_buffer = GSS_C_EMPTY_BUFFER;
+
+void mag_get_name_attributes(request_rec *req, gss_auth_config *cfg,
+                             gss_name_t name, gss_conn_ctx_t *gss_ctx)
+{
+    if (!cfg->name_attributes) {
+        return;
+    }
+
+    uint32_t maj, min;
+    gss_buffer_set_t attrs = GSS_C_NO_BUFFER_SET;
+    name_attr attr;
+    char *json = NULL;
+    char *error;
+    int count = 0;
+    int i, j;
+
+    maj = gss_inquire_name(&min, name, NULL, NULL, &attrs);
+    if (GSS_ERROR(maj)) {
+        error = mag_error(req, "gss_inquire_name() failed", maj, min);
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, req, "%s", error);
+        apr_table_set(req->subprocess_env, "GSS_NAME_ATTR_ERROR", error);
+        return;
+    }
+
+    if (!attrs || attrs->count == 0) {
+        mc_add_name_attribute(gss_ctx, "GSS_NAME_ATTR_ERROR", "0 attributes found");
+    }
+
+    if (cfg->name_attributes->output_json) {
+
+        if (attrs) count = attrs->count;
+
+        json = apr_psprintf(req->pool,
+                            "{\"name\":\"%s\",\"attributes\":{",
+                            gss_ctx->user);
+    } else {
+        count = cfg->name_attributes->map_count;
+    }
+
+    for (i = 0; i < count; i++) {
+        memset(&attr, 0, sizeof(name_attr));
+
+        if (cfg->name_attributes->output_json) {
+            attr.name = attrs->elements[i];
+            for (j = 0; j < cfg->name_attributes->map_count; j++) {
+                if (strncmp(cfg->name_attributes->map[j].attr_name,
+                            attrs->elements[i].value,
+                            attrs->elements[i].length) == 0) {
+                    attr.env_name = cfg->name_attributes->map[j].env_name;
+                    break;
+                }
+            }
+        } else {
+            attr.name.length = strlen(cfg->name_attributes->map[i].attr_name);
+            attr.name.value = cfg->name_attributes->map[i].attr_name;
+            attr.env_name = cfg->name_attributes->map[i].env_name;
+        }
+
+        attr.number = 0;
+        attr.more = -1;
+        do {
+            char code = 0;
+            attr.number++;
+            attr.value = empty_buffer;
+            attr.display_value = empty_buffer;
+            if (!mag_get_name_attr(req, name, &attr)) break;
+
+            if (cfg->name_attributes->output_json) {
+                mag_add_json_name_attr(req, i == 0, &attr, &json);
+            }
+            if (attr.env_name) {
+                mag_set_env_name_attr(req, gss_ctx, &attr);
+            }
+
+            gss_release_buffer(&min, &attr.value);
+            gss_release_buffer(&min, &attr.display_value);
+        } while (attr.more != 0);
+    }
+
+    if (cfg->name_attributes->output_json) {
+        json = apr_psprintf(req->pool, "%s}}", json);
+        mc_add_name_attribute(gss_ctx, "GSS_NAME_ATTRS_JSON", json);
+    }
+}
+
+static void mag_set_name_attributes(request_rec *req, gss_conn_ctx_t *gss_ctx)
+{
+    int i = 0;
+    for (i = 0; i < gss_ctx->na_count; i++) {
+        apr_table_set(req->subprocess_env,
+                      gss_ctx->name_attributes[i].name,
+                      gss_ctx->name_attributes[i].value);
+    }
+}
+
+void mag_set_req_data(request_rec *req,
+                      gss_auth_config *cfg,
+                      gss_conn_ctx_t *gss_ctx)
+{
+    if (gss_ctx->name_attributes) {
+        mag_set_name_attributes(req, gss_ctx);
+    }
+}
+
+#define GSS_NAME_ATTR_USERDATA "GSS Name Attributes Userdata"
+
+static apr_status_t mag_name_attrs_cleanup(void *data)
+{
+    gss_auth_config *cfg = (gss_auth_config *)data;
+    free(cfg->name_attributes);
+    cfg->name_attributes = NULL;
+    return 0;
+}
+
+const char *mag_name_attrs(cmd_parms *parms, void *mconfig,
+                                  const char *w)
+{
+    gss_auth_config *cfg = (gss_auth_config *)mconfig;
+    void *tmp_na;
+    size_t size = 0;
+    char *p;
+    int c;
+
+    if (!cfg->name_attributes) {
+        size = sizeof(mag_name_attributes)
+                + (sizeof(mag_na_map) * 16);
+    } else if (cfg->name_attributes->map_count % 16 == 0) {
+        size = sizeof(mag_name_attributes)
+                + (sizeof(mag_na_map)
+                    * (cfg->name_attributes->map_count + 16));
+    }
+    if (size) {
+        tmp_na = realloc(cfg->name_attributes, size);
+        if (!tmp_na) apr_pool_abort_get(cfg->pool)(ENOMEM);
+
+        if (cfg->name_attributes) {
+            size_t empty = (sizeof(mag_na_map) * 16);
+            memset(tmp_na + size - empty, 0, empty);
+        } else {
+            memset(tmp_na, 0, size);
+        }
+        cfg->name_attributes = (mag_name_attributes *)tmp_na;
+        apr_pool_userdata_setn(cfg, GSS_NAME_ATTR_USERDATA,
+                               mag_name_attrs_cleanup, cfg->pool);
+    }
+
+
+    p = strchr(w, ' ');
+    if (p == NULL) {
+        if (strcmp(w, "json") == 0) {
+            cfg->name_attributes->output_json = 1;
+        } else {
+            ap_log_error(APLOG_MARK, APLOG_ERR, 0, parms->server,
+                         "Invalid Name Attributes value [%s].", w);
+        }
+        return NULL;
+    }
+
+    c = cfg->name_attributes->map_count;
+    cfg->name_attributes->map[c].env_name = apr_pstrndup(cfg->pool, w, p-w);
+    p++;
+    cfg->name_attributes->map[c].attr_name = apr_pstrdup(cfg->pool, p);
+    cfg->name_attributes->map_count += 1;
+
+    return NULL;
+}

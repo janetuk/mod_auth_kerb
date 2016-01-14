@@ -28,8 +28,8 @@ mod_auth_gssweb.la: $(GSSWEB_SRCS)
 install: mod_auth_gssapi.la mod_auth_gssweb.la
 	$(INSTALL) -d $(DESTDIR)${libdir}/apache2/modules
 	$(INSTALL) -d $(DESTDIR)${sysconfdir}/apache2/mods-available
-	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" $^ "${APXS} -i -A  -S LIBEXECDIR=$(DESTDIR)${libdir}/apache2/modules -S SYSCONFDIR=$(DESTDIR)${sysconfdir}/apache2 -n auth_gssapi"
-	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" $^ "${APXS} -i -A  -S LIBEXECDIR=$(DESTDIR)${libdir}/apache2/modules -S SYSCONFDIR=$(DESTDIR)${sysconfdir}/apache2 -n auth_gssweb"
+	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" mod_auth_gssapi.la "${APXS} -i -A  -S LIBEXECDIR=$(DESTDIR)${libdir}/apache2/modules -S SYSCONFDIR=$(DESTDIR)${sysconfdir}/apache2 -n auth_gssapi"
+	./apxs.sh "${CPPFLAGS}" "${LDFLAGS}" mod_auth_gssweb.la "${APXS} -i -A  -S LIBEXECDIR=$(DESTDIR)${libdir}/apache2/modules -S SYSCONFDIR=$(DESTDIR)${sysconfdir}/apache2 -n auth_gssweb"
 
 clean:
 	for i in . spnegokrb5; do \

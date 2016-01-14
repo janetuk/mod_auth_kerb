@@ -37,7 +37,7 @@
  * NOTE: Portions of the code in this file were derived from example
  * code distributed under the Apache 2.0 license:
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * This module implements the Apache server side of the GSSWeb
  * authentiction type which allows Moonshot to be used for
  * authentication in web applications.  The module consists of two
@@ -48,7 +48,7 @@
  * response content.
  *
  * This module uses a simple protocol between the client and server
- * to exchange GSS tokens and nonce information.  The protocol is 
+ * to exchange GSS tokens and nonce information.  The protocol is
  * described in the protocol.txt file included with module source.
  */
 
@@ -68,11 +68,11 @@ static const command_rec gssweb_config_cmds[] = {
 
     { NULL }
 };
-  
+
 #define DEFAULT_ENCTYPE		"application/x-www-form-urlencoded"
 #define GSS_MAX_TOKEN_SIZE	4096	//TBD -- check this value
 
-/* gssweb_read_req() -- reads the request data into a buffer 
+/* gssweb_read_req() -- reads the request data into a buffer
  */
 static int gssweb_read_req(request_rec *r, const char **rbuf, apr_off_t *size)
 {
@@ -82,7 +82,7 @@ static int gssweb_read_req(request_rec *r, const char **rbuf, apr_off_t *size)
     gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_get_post_data: Failed to set up client block");
     return(rc);
   }
-  
+
   if(ap_should_client_block(r)) {
     char          argsbuffer[HUGE_STRING_LEN];
     apr_off_t     rsize, len_read, rpos = 0;
@@ -121,7 +121,7 @@ static int gssweb_get_post_data(request_rec *r, unsigned int *nonce, gss_buffer_
   input_token->value = NULL;
 
     gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_get_post_data: Entering function");
- 
+
   if(r->method_number != M_POST) {
     gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_get_post_data: Request data is not a POST, declining.");
     return DECLINED;
@@ -137,8 +137,8 @@ static int gssweb_get_post_data(request_rec *r, unsigned int *nonce, gss_buffer_
     gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_get_post_data: Data read error, rc = %d", rc);
     return rc;
   }
-  
-  while(*data && (val = ap_getword(r->pool, &data, '&'))) { 
+
+  while(*data && (val = ap_getword(r->pool, &data, '&'))) {
     key = ap_getword(r->pool, &val, '=');
     ap_unescape_url((char*)key);
     ap_unescape_url((char*)val);
@@ -168,7 +168,7 @@ static int gssweb_get_post_data(request_rec *r, unsigned int *nonce, gss_buffer_
 }
 
 /* gssweb_authenticate_filter() -- Output filter for gssweb authentication.
- * Wraps original response in JSON -- adding JSON to the beginning of the 
+ * Wraps original response in JSON -- adding JSON to the beginning of the
  * response, escapes double quotes in the original response, and adds JSON
  * to the end of the response.  Handles responses that involve more than
  * one filter call by maintaining state until an EOS bucket is received.
@@ -195,9 +195,9 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 
   gss_log(APLOG_MARK, APLOG_DEBUG, 0, f->r, "Entering GSSWeb filter");
 
-  /* Get the context from the request.  If the context is NULL or 
-   * there is no outstanding request (no nonce set), just forward 
-   * all of the buckets as-is, because the client isn't gssweb 
+  /* Get the context from the request.  If the context is NULL or
+   * there is no outstanding request (no nonce set), just forward
+   * all of the buckets as-is, because the client isn't gssweb
    */
   if ((NULL == (conn_ctx = gss_retrieve_conn_ctx(r))) ||
       (0 == conn_ctx->nonce)) {
@@ -205,7 +205,7 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 	 bkt_in != APR_BRIGADE_SENTINEL(brig_in);
 	 bkt_in = APR_BUCKET_NEXT(bkt_in))
       {
-	if (NULL == (brig_out = apr_brigade_create(r->pool, c->bucket_alloc))) {      
+	if (NULL == (brig_out = apr_brigade_create(r->pool, c->bucket_alloc))) {
 	  apr_brigade_cleanup(brig_in);
 	  return HTTP_INTERNAL_SERVER_ERROR;
 	}
@@ -253,11 +253,11 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
     }
 
     /* Send opening JSON block */
-    snprintf((char *)data, len+1024, 
-	     "{\"gssweb\": {\n\"token\": \"%s\",\n\"nonce\": \"%d\"},\n\"application\": {\n\"data\": \"", 
+    snprintf((char *)data, len+1024,
+	     "{\"gssweb\": {\n\"token\": \"%s\",\n\"nonce\": \"%d\"},\n\"application\": {\n\"data\": \"",
 	     stoken, conn_ctx->nonce);
     gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending (%d bytes): %s", strlen(data), data);
-    
+
     bkt_out = apr_bucket_heap_create(data, strlen(data), apr_bucket_free,
 				     c->bucket_alloc);
     APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
@@ -286,7 +286,7 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
       if(APR_BUCKET_IS_EOS(bkt_in))
 	{
 	  /* create and add the JSON closing block */
-	  
+
 	  if (NULL == (data = apr_bucket_alloc(1024, c->bucket_alloc))) {
 	      gss_log(APLOG_MARK, APLOG_ERR, 0, r, "gssweb_authenticate_filter: Unable to allocate space for closing JSON block");
 	      apr_brigade_cleanup(brig_in);
@@ -303,11 +303,11 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 
 	  /* Indicate that the next filter call is a new response */
 	  conn_ctx->filter_stat = GSS_FILT_NEW;
-	  
+
 	  /* set EOS in the outbound brigade */
 	  bkt_eos = apr_bucket_eos_create(c->bucket_alloc);
 	  APR_BRIGADE_INSERT_TAIL (brig_out, bkt_eos);
-	  
+
 	  /* set application type to 'application/json' */
 	  apr_table_set(r->headers_out, "Content-Type", "application/json");
 
@@ -345,7 +345,7 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
 	buf[enc_len] = '\0';
 	gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "gssweb_authenticate_filter: Sending (%d bytes)", enc_len);
 	APR_BRIGADE_INSERT_TAIL(brig_out, bkt_out);
-	
+
 	/* Send the output brigade */
 	if (OK != (ret = ap_pass_brigade(f->next, brig_out))) {
 	  apr_brigade_cleanup(brig_in);
@@ -365,7 +365,7 @@ static apr_status_t gssweb_authenticate_filter (ap_filter_t *f,
  * gssweb_insert_error_filter hook.
  */
 static void
-gssweb_add_filter(request_rec *r) 
+gssweb_add_filter(request_rec *r)
 {
   gss_conn_ctx conn_ctx = NULL;
 
@@ -385,7 +385,7 @@ gssweb_add_filter(request_rec *r)
  * output token back to the client.
  */
 static int
-gssweb_authenticate_user(request_rec *r) 
+gssweb_authenticate_user(request_rec *r)
 {
   const char *auth_line = NULL;
   char *auth_type = NULL;
@@ -518,15 +518,20 @@ gssweb_authenticate_user(request_rec *r)
   conn_ctx->state = GSS_CTX_ESTABLISHED;
   r->user = apr_pstrdup(r->pool, conn_ctx->user);
   r->ap_auth_type = "GSSWeb";
+
+  /* TODO: Make it a single call! */
+  mag_get_name_attributes(r, conf, client_name, conn_ctx);
+  mag_set_req_data(r, conf, conn_ctx);
+
   ret = OK;
 
  end:
   if (delegated_cred)
     gss_release_cred(&minor_status, &delegated_cred);
-  
+
   if ((release_output_token) && (output_token.length))
     gss_release_buffer(&minor_status, &output_token);
-    
+
   if (client_name != GSS_C_NO_NAME)
     gss_release_name(&minor_status, &client_name);
 

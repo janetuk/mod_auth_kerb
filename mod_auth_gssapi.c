@@ -45,6 +45,8 @@ static const command_rec gss_config_cmds[] = {
     command("GSSKrb5Keytab", ap_set_string_slot, krb5_keytab,
             TAKE1, "Location of Kerberos V5 keytab file."),
 
+    AP_INIT_RAW_ARGS("GssapiNameAttributes", mag_name_attrs, NULL, OR_AUTHCFG | RSRC_CONF,
+                     "Name Attributes to be exported as environ variables"),
     { NULL }
 };
 
@@ -140,7 +142,7 @@ gss_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
 #else
   accept_sec_context = (cmp_gss_type(&input_token, &spnego_oid) == 0) ?
 		      gss_accept_sec_context_spnego : gss_accept_sec_context;
-#endif  
+#endif
 
   major_status = accept_sec_context(&minor_status,
 				  &ctx->context,
@@ -159,7 +161,7 @@ gss_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
   if (output_token.length) {
      char *token = NULL;
      size_t len;
-     
+
      len = apr_base64_encode_len(output_token.length) + 1;
      token = apr_pcalloc(r->connection->pool, len + 1);
      if (token == NULL) {
@@ -210,7 +212,13 @@ gss_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
   }
 
   major_status = gss_display_name(&minor_status, client_name, &output_token, NULL);
-  gss_release_name(&minor_status, &client_name); 
+  ctx->user = apr_pstrdup(r->pool, output_token.value);
+
+  /* TODO: Make it a single call! */
+  mag_get_name_attributes(r, conf, client_name, ctx);
+  mag_set_req_data(r, conf, ctx);
+
+  gss_release_name(&minor_status, &client_name);
   if (GSS_ERROR(major_status)) {
     gss_log(APLOG_MARK, APLOG_ERR, 0, r,
 	    "%s", get_gss_error(r, major_status, minor_status,
@@ -220,7 +228,6 @@ gss_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
   }
 
   ctx->state = GSS_CTX_ESTABLISHED;
-  ctx->user = apr_pstrdup(r->pool, output_token.value);
   gss_release_buffer(&minor_status, &output_token);
 
   ret = OK;
@@ -229,7 +236,7 @@ end:
   if (delegated_cred)
      gss_release_cred(&minor_status, &delegated_cred);
 
-  if (output_token.length) 
+  if (output_token.length)
      gss_release_buffer(&minor_status, &output_token);
 
   if (client_name != GSS_C_NO_NAME)
@@ -244,7 +251,7 @@ end:
 static int
 gss_authenticate_user(request_rec *r)
 {
-    gss_auth_config *conf = 
+    gss_auth_config *conf =
         (gss_auth_config *) ap_get_module_config(r->per_dir_config,
 						&auth_gssapi_module);
     const char *auth_line = NULL;
@@ -255,7 +262,7 @@ gss_authenticate_user(request_rec *r)
     int ret;
 
     gss_log(APLOG_MARK, APLOG_DEBUG, 0, r, "Entering GSSAPI authentication");
-   
+
     /* get the type specified in Apache configuration */
     type = ap_auth_type(r);
     if (type == NULL || strcmp(type, "Negotiate") != 0) {

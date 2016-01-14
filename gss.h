@@ -29,6 +29,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * Most of the name attributes management code is based from
+ * https://github.com/modauthgssapi/mod_auth_gssapi, written by Simo Sorce.
+ */
+
 #ifndef __GSS_H__
 #define __GSS_H__
 
@@ -43,15 +48,47 @@
 #include <apr_strings.h>
 
 #include <gssapi.h>
+#include <gssapi/gssapi.h>
+#include <gssapi/gssapi_ext.h>
+
 
 #define SERVICE_NAME "HTTP"
+
+typedef struct  {
+    char *env_name;
+    char *attr_name;
+} mag_na_map;
+
+typedef struct  {
+    char output_json;
+    int map_count;
+    mag_na_map map[];
+} mag_name_attributes;
+
+typedef struct {
+   const char *name;
+    const char *value;
+} mag_attr;
+
+typedef struct  {
+    gss_buffer_desc name;
+    int authenticated;
+    int complete;
+    gss_buffer_desc value;
+    gss_buffer_desc display_value;
+    const char *env_name;
+    int number;
+    int more;
+} name_attr;
 
 typedef struct {
     const char *service_name;
     const char *krb5_keytab;
+    apr_pool_t *pool;
+    mag_name_attributes *name_attributes;
 } gss_auth_config;
 
-typedef struct gss_conn_ctx_t {
+typedef struct {
   gss_ctx_id_t context;
   gss_cred_id_t server_creds;
   enum {
@@ -69,10 +106,16 @@ typedef struct gss_conn_ctx_t {
   char *user;
   gss_buffer_desc output_token;
   unsigned int nonce;
-} *gss_conn_ctx;
+  apr_pool_t *pool;
+  int na_count;
+  mag_attr *name_attributes;
+} gss_conn_ctx_t, *gss_conn_ctx;
+
+
+
 
 void
-gss_log(const char *file, 
+gss_log(const char *file,
         int line,
 #if AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORVERSION_NUMBER == 4
         int module_index,
@@ -102,5 +145,8 @@ get_gss_creds(request_rec *r, gss_auth_config *conf, gss_cred_id_t *server_creds
 
 int
 cmp_gss_type(gss_buffer_t token, gss_OID oid);
+
+const char *
+mag_name_attrs(cmd_parms *parms, void *mconfig, const char *w);
 
 #endif
