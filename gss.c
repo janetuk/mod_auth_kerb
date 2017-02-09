@@ -352,6 +352,16 @@ static char mag_get_name_attr(request_rec *req,
     return 1;
 }
 
+#define GSS_NAME_ATTR_USERDATA "GSS Name Attributes Userdata"
+
+static apr_status_t mag_gss_name_attrs_cleanup(void *data)
+{
+    gss_conn_ctx_t *gss_ctx = (struct gss_conn_ctx_t *)data;
+    free(gss_ctx->name_attributes);
+    gss_ctx->name_attributes = NULL;
+    return 0;
+}
+
 static void mc_add_name_attribute(gss_conn_ctx_t *gss_ctx,
                                   const char *name, const char *value)
 {
@@ -361,6 +371,8 @@ static void mc_add_name_attribute(gss_conn_ctx_t *gss_ctx,
         size = sizeof(mag_attr) * (gss_ctx->na_count + 16);
         gss_ctx->name_attributes = realloc(gss_ctx->name_attributes, size);
         if (!gss_ctx->name_attributes) apr_pool_abort_get(gss_ctx->pool)(ENOMEM);
+        apr_pool_userdata_setn(gss_ctx, GSS_NAME_ATTR_USERDATA,
+                               mag_gss_name_attrs_cleanup, gss_ctx->pool);
     }
 
     gss_ctx->name_attributes[gss_ctx->na_count].name = apr_pstrdup(gss_ctx->pool, name);
@@ -404,6 +416,37 @@ static void mag_set_env_name_attr(request_rec *req, gss_conn_ctx_t *gss_ctx,
     }
 }
 
+static char* mag_escape_display_value(request_rec *req, gss_buffer_desc disp_value)
+{
+    /* This function returns a copy (in the pool) of the given gss_buffer_t where every
+     * occurrence of " has been replaced by \". This string is NULL terminated */
+    int i = 0, j = 0, n_quotes = 0;
+    char *escaped_value = NULL;
+    char *value = (char*) disp_value.value;
+
+    // count number of quotes in the input string
+    for (i = 0, j = 0; i < disp_value.length; i++)
+        if (value[i] == '"')
+            n_quotes++;
+
+    // if there are no quotes, just return a copy of the string
+    if (n_quotes == 0)
+        return apr_pstrndup(req->pool, value, disp_value.length);
+
+    // gss_buffer_t are not \0 terminated, but our result will be
+    escaped_value = apr_palloc(req->pool, disp_value.length + n_quotes + 1);
+    for (i = 0,j = 0; i < disp_value.length; i++, j++) {
+        if (value[i] == '"') {
+            escaped_value[j] = '\\';
+            j++;
+        }
+        escaped_value[j] = value[i];
+    }
+    // make the string NULL terminated
+    escaped_value[j] = '\0';
+    return escaped_value;
+}
+
 static void mag_add_json_name_attr(request_rec *req, char first,
                                    name_attr *attr, char **json)
 {
@@ -423,8 +466,8 @@ static void mag_add_json_name_attr(request_rec *req, char first,
                                    attr->value.length);
     }
     if (attr->display_value.length != 0) {
-        len = attr->display_value.length;
-        value = (const char *)attr->display_value.value;
+        value = mag_escape_display_value(req, attr->display_value);
+        len = strlen(value);
     }
     if (attr->number == 1) {
         *json = apr_psprintf(req->pool,
@@ -469,10 +512,6 @@ gss_buffer_desc empty_buffer = GSS_C_EMPTY_BUFFER;
 void mag_get_name_attributes(request_rec *req, gss_auth_config *cfg,
                              gss_name_t name, gss_conn_ctx_t *gss_ctx)
 {
-    if (!cfg->name_attributes) {
-        return;
-    }
-
     uint32_t maj, min;
     gss_buffer_set_t attrs = GSS_C_NO_BUFFER_SET;
     name_attr attr;
@@ -526,7 +565,6 @@ void mag_get_name_attributes(request_rec *req, gss_auth_config *cfg,
         attr.number = 0;
         attr.more = -1;
         do {
-            char code = 0;
             attr.number++;
             attr.value = empty_buffer;
             attr.display_value = empty_buffer;
@@ -568,8 +606,6 @@ void mag_set_req_data(request_rec *req,
         mag_set_name_attributes(req, gss_ctx);
     }
 }
-
-#define GSS_NAME_ATTR_USERDATA "GSS Name Attributes Userdata"
 
 static apr_status_t mag_name_attrs_cleanup(void *data)
 {

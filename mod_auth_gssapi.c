@@ -212,11 +212,13 @@ gss_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
   }
 
   major_status = gss_display_name(&minor_status, client_name, &output_token, NULL);
-  ctx->user = apr_pstrdup(r->pool, output_token.value);
+  ctx->user = apr_pstrndup(r->pool, output_token.value, output_token.length);
 
-  /* TODO: Make it a single call! */
-  mag_get_name_attributes(r, conf, client_name, ctx);
-  mag_set_req_data(r, conf, ctx);
+  if (conf->name_attributes) {
+    mag_get_name_attributes(r, conf, client_name, ctx);
+    mag_set_req_data(r, conf, ctx);
+  }
+
 
   gss_release_name(&minor_status, &client_name);
   if (GSS_ERROR(major_status)) {
@@ -246,6 +248,13 @@ end:
      gss_release_cred(&minor_status, &server_creds);
 
   return ret;
+}
+
+static int mag_post_config(apr_pool_t *cfgpool, apr_pool_t *log,
+                           apr_pool_t *temp, server_rec *s)
+{
+    ap_add_version_component(cfgpool, "Moonshot mod_auth_gssapi");
+    return OK;
 }
 
 static int
@@ -335,6 +344,7 @@ static void
 gss_register_hooks(apr_pool_t *p)
 {
     ap_hook_check_user_id(gss_authenticate_user, NULL, NULL, APR_HOOK_MIDDLE);
+    ap_hook_post_config(mag_post_config, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
 module AP_MODULE_DECLARE_DATA auth_gssapi_module = {
