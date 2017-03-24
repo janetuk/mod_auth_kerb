@@ -181,9 +181,11 @@ gss_authenticate(request_rec *r, gss_auth_config *conf, gss_conn_ctx ctx,
   }
 
   if (GSS_ERROR(major_status)) {
-     gss_log(APLOG_MARK, APLOG_ERR, 0, r,
-	     "%s", get_gss_error(r, major_status, minor_status,
-		                 "Failed to establish authentication"));
+     // at least this error should be populated, to provider further information
+     // to the user (maybe)
+     char *error = get_gss_error(r, major_status, minor_status, "Failed to establish authentication");
+     apr_table_set(r->subprocess_env, "GSS_ERROR_STR", error);
+     gss_log(APLOG_MARK, APLOG_ERR, 0, r, error);
 #if 0
      /* Don't offer the Negotiate method again if call to GSS layer failed */
      /* XXX ... which means we don't return the "error" output */
@@ -257,6 +259,10 @@ static int mag_post_config(apr_pool_t *cfgpool, apr_pool_t *log,
     return OK;
 }
 
+#define MAG_ERROR_NO_AUTH_DATA    "NO_AUTH_DATA"
+#define MAG_ERROR_UNSUP_AUTH_TYPE "UNSUP_AUTH_TYPE"
+#define MAG_ERROR_GSS_MECH        "GSS_MECH_ERROR"
+
 static int
 gss_authenticate_user(request_rec *r)
 {
@@ -290,6 +296,7 @@ gss_authenticate_user(request_rec *r)
         gss_log(APLOG_MARK, APLOG_DEBUG, 0, r,
 		"Client hasn't sent any authentication data, giving up");
         set_http_headers(r, conf, "\0");
+        apr_table_set(r->subprocess_env, "MAG_ERROR", MAG_ERROR_NO_AUTH_DATA);
         return HTTP_UNAUTHORIZED;
     }
 
@@ -299,6 +306,7 @@ gss_authenticate_user(request_rec *r)
 		"Unsupported authentication type (%s) requested by client",
 		(auth_type) ? auth_type : "(NULL)");
         set_http_headers(r, conf, "\0");
+        apr_table_set(r->subprocess_env, "MAG_ERROR", MAG_ERROR_UNSUP_AUTH_TYPE);
         return HTTP_UNAUTHORIZED;
     }
 
@@ -333,8 +341,9 @@ gss_authenticate_user(request_rec *r)
     if (ret == OK) {
 	r->user = apr_pstrdup(r->pool, conn_ctx->user);
 	r->ap_auth_type = "Negotiate";
+    } else {
+      apr_table_set(r->subprocess_env, "MAG_ERROR", MAG_ERROR_GSS_MECH);
     }
-
     /* debug LOG ??? */
 
     return ret;

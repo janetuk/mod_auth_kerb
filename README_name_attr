@@ -1,3 +1,5 @@
+The module provides the following option to deal with GSS API name attributes:
+
 #### GssapiNameAttributes
 
 Enables the module to source Name Attributes from the client name
@@ -17,4 +19,19 @@ and with the string "0 attributes found", if no attributes are set.
     GssapiNameAttributes json
     GssapiNameAttributes RADIUS_USER_NAME urn:ietf:params:gss:radius-attribute 1
     GssapiNameAttributes EPPN urn:ietf:params:gss:federated-saml-attribute urn:oasis:names:tc:SAML:2.0:attrname-format:uri urn:oid:1.3.6.1.4.1.5923.1.1.1.6
+
+#### Feedback on authentication failure reason
+
+In addition to this, in the event of an authentication failure,
+ the module exports an environment variable called MAG_ERROR wich contains one 
+of the following values:
+* "NO_AUTH_DATA" when the client did not send any authentication data (usually because the
+ appropriate libraries are not installed on the browser).
+* "UNSUP_AUTH_TYPE" when the client sent authentication data of an invalid type.
+* "GSS_MECH_ERROR" when the GSS mechanism failed for some reason (e.g. invalid credentials). 
+
+In addition to this, whenever MAG_ERROR takes a value of "GSS_MECH_ERROR", an additional environment
+variable named GSS_ERROR_STR is sourced. This variable contains the result of
+the gss_display_status() call and may help web developers to show a more appropriate error page/string
+to the user.
 

@@ -356,7 +356,7 @@ static char mag_get_name_attr(request_rec *req,
 
 static apr_status_t mag_gss_name_attrs_cleanup(void *data)
 {
-    gss_conn_ctx_t *gss_ctx = (struct gss_conn_ctx_t *)data;
+    gss_conn_ctx_t *gss_ctx = (gss_conn_ctx_t *) data;
     free(gss_ctx->name_attributes);
     gss_ctx->name_attributes = NULL;
     return 0;
@@ -416,34 +416,63 @@ static void mag_set_env_name_attr(request_rec *req, gss_conn_ctx_t *gss_ctx,
     }
 }
 
-static char* mag_escape_display_value(request_rec *req, gss_buffer_desc disp_value)
+static char *mag_escape_display_value(request_rec *req,
+                                      gss_buffer_desc disp_value)
 {
-    /* This function returns a copy (in the pool) of the given gss_buffer_t where every
-     * occurrence of " has been replaced by \". This string is NULL terminated */
-    int i = 0, j = 0, n_quotes = 0;
+    /* This function returns a copy (in the pool) of the given gss_buffer_t
+     * where some characters are escaped as required by RFC4627. The string is
+     * NULL terminated */
+    char *value = disp_value.value;
     char *escaped_value = NULL;
-    char *value = (char*) disp_value.value;
+    char *p = NULL;
+    size_t i = 0;
 
-    // count number of quotes in the input string
-    for (i = 0, j = 0; i < disp_value.length; i++)
-        if (value[i] == '"')
-            n_quotes++;
-
-    // if there are no quotes, just return a copy of the string
-    if (n_quotes == 0)
-        return apr_pstrndup(req->pool, value, disp_value.length);
-
-    // gss_buffer_t are not \0 terminated, but our result will be
-    escaped_value = apr_palloc(req->pool, disp_value.length + n_quotes + 1);
-    for (i = 0,j = 0; i < disp_value.length; i++, j++) {
-        if (value[i] == '"') {
-            escaped_value[j] = '\\';
-            j++;
+    /* gss_buffer_t are not \0 terminated, but our result will be. Hence,
+     * escaped length will be original length * 6 + 1 in the worst case */
+    p = escaped_value = apr_palloc(req->pool, disp_value.length * 6 + 1);
+    for (i = 0; i < disp_value.length; i++) {
+        switch (value[i]) {
+        case '"':
+            memcpy(p, "\\\"", 2);
+            p += 2;
+            break;
+        case '\\':
+            memcpy(p, "\\\\", 2);
+            p += 2;
+            break;
+        case '\b':
+            memcpy(p, "\\b", 2);
+            p += 2;
+            break;
+        case '\t':
+            memcpy(p, "\\t", 2);
+            p += 2;
+            break;
+        case '\r':
+            memcpy(p, "\\r", 2);
+            p += 2;
+            break;
+        case '\f':
+            memcpy(p, "\\f", 2);
+            p += 2;
+            break;
+        case '\n':
+            memcpy(p, "\\n", 2);
+            p += 2;
+            break;
+        default:
+            if (value[i] <= 0x1F) {
+                apr_snprintf(p, 7, "\\u%04d", (int)value[i]);
+                p += 6;
+            } else {
+                *p = value[i];
+                p += 1;
+            }
+            break;
         }
-        escaped_value[j] = value[i];
     }
-    // make the string NULL terminated
-    escaped_value[j] = '\0';
+    /* make the string NULL terminated */
+    *p = '\0';
     return escaped_value;
 }
 

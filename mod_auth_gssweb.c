@@ -520,8 +520,10 @@ gssweb_authenticate_user(request_rec *r)
   r->ap_auth_type = "GSSWeb";
 
   /* TODO: Make it a single call! */
-  mag_get_name_attributes(r, conf, client_name, conn_ctx);
-  mag_set_req_data(r, conf, conn_ctx);
+  if (conf->name_attributes) {
+    mag_get_name_attributes(r, conf, client_name, conn_ctx);
+    mag_set_req_data(r, conf, conn_ctx);
+  }
 
   ret = OK;
 
